@@ -24,6 +24,7 @@
         "exit_code": {"enum": [0, 3, 10, 11]},
         "outputs": {"type": "array", "items": {"type": "string"}},
         "source": {"type": "object"},
+        "external_status": {"enum": ["completed", "partial", null]},
         "error": {"type": "string", "minLength": 1}
       },
       "allOf": [

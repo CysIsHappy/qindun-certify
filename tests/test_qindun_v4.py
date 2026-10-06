@@ -731,6 +731,35 @@ class QindunV4Test(unittest.TestCase):
         self.assertEqual(markdown_count, 2)
         self.assertEqual(html_count, 2)
 
+    @unittest.skipUnless(
+        importlib.util.find_spec("jsonschema") is not None,
+        "jsonschema is required for batch summary validation",
+    )
+    def test_generated_summary_schema_accepts_external_scan_status(self) -> None:
+        import jsonschema
+
+        schema = json.loads(
+            (ROOT / "references/qindun-batch-summary-v1.schema.json").read_text(encoding="utf-8")
+        )
+        validator = jsonschema.Draft202012Validator(schema)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "skill"
+            output = Path(directory) / "reports"
+            _skill(target)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    RUNNER.main([str(target), "--output-dir", str(output)]), ENGINE.EXIT_OK
+                )
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+        self.assertIsNone(summary["items"][0]["external_status"])
+        validator.validate(summary)
+        for status in ("completed", "partial"):
+            summary["items"][0]["external_status"] = status
+            validator.validate(summary)
+        summary["items"][0]["external_status"] = "unknown"
+        with self.assertRaises(jsonschema.ValidationError):
+            validator.validate(summary)
+
     def test_runner_rejects_report_directory_inside_scan_target(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "skill"
