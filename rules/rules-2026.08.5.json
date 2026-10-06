@@ -1,0 +1,661 @@
+{
+  "format": "qindun-rule-bundle/v1",
+  "version": "2026.08.5",
+  "grade_policy": {
+    "format": "qindun-grade-policy/v1",
+    "confirmed_danger": {
+      "severity": "critical",
+      "disposition": "confirmed"
+    },
+    "finding_grade_caps": {
+      "info": "S_PLUS",
+      "low": "A",
+      "medium": "B",
+      "high": "C",
+      "critical": "C"
+    },
+    "local_maximum_grade": "B"
+  },
+  "rules": [
+    {
+      "id": "QINDUN.D3.RECURSIVE_ROOT_DELETE",
+      "version": "1.1.0",
+      "dimension": "D3",
+      "severity": "critical",
+      "title": "发现破坏性根目录删除命令",
+      "summary": "内容包含递归强制删除根目录或用户主目录的命令",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "\\brm\\s+-[^\\n]{0,20}r[^\\n]{0,20}f\\s+(?:/|~|\\$HOME)(?:\\s|$)"
+    },
+    {
+      "id": "QINDUN.D3.REMOTE_PIPE_SHELL",
+      "version": "1.1.0",
+      "dimension": "D3",
+      "severity": "critical",
+      "title": "发现远程内容直接进入命令解释器",
+      "summary": "内容把网络下载结果未经校验直接交给 shell 执行",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "\\b(?:curl|wget)\\b[^\\n|]{0,500}\\|\\s*(?:ba)?sh\\b"
+    },
+    {
+      "id": "QINDUN.D3.CREDENTIAL_EXFILTRATION",
+      "version": "1.1.0",
+      "dimension": "D3",
+      "severity": "critical",
+      "title": "发现凭据收集与外传组合",
+      "summary": "内容同时读取常见凭据位置并调用网络发送能力",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:\\.ssh/|\\.aws/credentials|\\.config/gcloud|login\\.keychain).{0,300}(?:curl|fetch\\(|requests\\.|https?://)"
+    },
+    {
+      "id": "QINDUN.D3.HIDDEN_INSTRUCTION_CONTROL",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现隐藏文本控制字符",
+      "summary": "文本包含可改变显示顺序或隐藏指令边界的双向控制字符",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "",
+      "pattern": "[\\u202A-\\u202E\\u2066-\\u2069]"
+    },
+    {
+      "id": "QINDUN.D3.POWERSHELL_DOWNLOAD_EXECUTION",
+      "version": "1.1.0",
+      "dimension": "D3",
+      "severity": "critical",
+      "title": "发现 PowerShell 下载后直接执行",
+      "summary": "网络下载结果未经校验直接交给 PowerShell 表达式执行器",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:\\b(?:iwr|Invoke-WebRequest)\\b[^\\n|]{0,500}\\|\\s*(?:iex|Invoke-Expression)\\b|(?:iex|Invoke-Expression)\\s*\\(.{0,300}(?:DownloadString|Invoke-WebRequest))"
+    },
+    {
+      "id": "QINDUN.D3.REVERSE_SHELL",
+      "version": "1.1.0",
+      "dimension": "D3",
+      "severity": "critical",
+      "title": "发现反向命令连接特征",
+      "summary": "代码包含把命令解释器连接到外部网络端点的典型组合",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:\\bbash\\s+-i\\s+[^\\n]{0,120}/dev/tcp/|\\bnc(?:at)?\\b[^\\n]{0,120}\\s-e\\s+(?:/bin/)?(?:ba)?sh\\b|socket\\..{0,300}(?:dup2|/bin/(?:ba)?sh))"
+    },
+    {
+      "id": "QINDUN.D3.PERSISTENCE_COMMAND",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现系统持久化命令",
+      "summary": "内容尝试通过计划任务、系统服务或启动项保持长期运行",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:\\b(?:echo|printf)\\b[^\\n]{0,160}\\|\\s*crontab\\b|\\bsystemctl\\s+enable\\b|\\blaunchctl\\s+(?:load|bootstrap)\\b|\\breg\\s+add\\s+[\"']?HK(?:CU|LM)\\\\[^\\n]{0,160}\\\\CurrentVersion\\\\Run)"
+    },
+    {
+      "id": "QINDUN.D3.OBFUSCATED_EXECUTION",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现解码后动态执行代码",
+      "summary": "内容把动态解码结果交给代码执行函数，需要复核真实载荷",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:base64\\.b64decode|atob\\s*\\(|Buffer\\.from\\().{0,300}\\b(?:eval|exec)\\s*\\("
+    },
+    {
+      "id": "QINDUN.D7.PROMPT_OVERRIDE_INSTRUCTION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "medium",
+      "title": "发现疑似提示词越权指令",
+      "summary": "文档尝试要求智能体忽略上级指令、系统消息或安全规则",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:ignore|disregard|override)\\s+(?:all\\s+)?(?:previous|prior|system|developer|safety)(?:\\s+(?:system|developer|safety))?\\s+(?:instructions?|messages?|rules?)|忽略(?:此前|之前|以上|系统|开发者|安全).{0,16}(?:指令|消息|规则|要求)"
+    },
+    {
+      "id": "QINDUN.D7.PROMPT_SECRET_EXFILTRATION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现提示词敏感信息外传指令",
+      "summary": "文档要求收集系统提示词、开发者消息或凭据并发送到外部",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:collect|read|reveal|extract|窃取|读取|收集|泄露).{0,80}(?:system prompt|developer message|credentials?|secrets?|系统提示词|开发者消息|凭据|密钥).{0,160}(?:send|upload|post|exfiltrat|发送|上传|外传)"
+    },
+    {
+      "id": "QINDUN.D5.PRIVATE_KEY",
+      "version": "1.1.0",
+      "dimension": "D5",
+      "severity": "critical",
+      "title": "发现私钥内容",
+      "summary": "内容包含常见私钥文件头",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"
+    },
+    {
+      "id": "QINDUN.D5.GENERIC_SECRET",
+      "version": "1.1.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似硬编码密钥或令牌",
+      "summary": "内容包含常见密钥字段和较长的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password)\\s*[:=]\\s*[\"']?[A-Za-z0-9_./+=-]{12,}[\"']?"
+    },
+    {
+      "id": "QINDUN.D5.AWS_ACCESS_KEY",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似 AWS 访问密钥",
+      "summary": "内容包含符合 AWS 访问密钥编号格式的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b"
+    },
+    {
+      "id": "QINDUN.D5.GITHUB_TOKEN",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似 GitHub 访问令牌",
+      "summary": "内容包含符合 GitHub 令牌格式的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\bgh[pousr]_[A-Za-z0-9]{20,}\\b"
+    },
+    {
+      "id": "QINDUN.D5.OPENAI_KEY",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似 OpenAI 接口密钥",
+      "summary": "内容包含符合 OpenAI 接口密钥格式的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\\b"
+    },
+    {
+      "id": "QINDUN.D5.SLACK_TOKEN",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似 Slack 访问令牌",
+      "summary": "内容包含符合 Slack 令牌格式的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\bxox[baprs]-[A-Za-z0-9-]{20,}\\b"
+    },
+    {
+      "id": "QINDUN.D5.JWT",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似固定 JWT 令牌",
+      "summary": "内容包含由三段编码组成的固定 JWT 令牌",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b"
+    },
+    {
+      "id": "QINDUN.D6.OBFUSCATED_NETWORK",
+      "version": "1.0.0",
+      "dimension": "D6",
+      "severity": "medium",
+      "title": "发现可能隐藏网络目标的动态解码",
+      "summary": "内容在网络调用附近动态解码数据，需要进一步复核数据流",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:base64\\.b64decode|atob\\s*\\(|Buffer\\.from\\().{0,300}(?:http|socket|request|fetch)"
+    },
+    {
+      "id": "QINDUN.D6.HARDCODED_SOCKET_TARGET",
+      "version": "1.0.0",
+      "dimension": "D6",
+      "severity": "medium",
+      "title": "发现硬编码套接字网络目标",
+      "summary": "代码直接连接固定 IP 和端口，需要确认是否属于声明能力",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:socket\\.create_connection|socket\\.connect|net\\.connect)\\s*\\(\\s*\\(?\\s*[\"'](?:\\d{1,3}\\.){3}\\d{1,3}[\"']\\s*,\\s*\\d{1,5}"
+    },
+    {
+      "id": "QINDUN.D3.AGENT_CONTEXT_WRITE",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现智能体上下文写入行为",
+      "summary": "代码可能修改智能体记忆、系统说明、设置或钩子文件，需要核对作品用途",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:(?:MEMORY\\.md|CLAUDE\\.md|\\.claude/(?:memory|settings|hooks)).{0,180}(?:write_text|writeFile|appendFile|open\\([^\\n]{0,80}[\"']a?[w+][\"']|tee\\b)|(?:write_text|writeFile|appendFile|tee\\b).{0,180}(?:MEMORY\\.md|CLAUDE\\.md|\\.claude/(?:memory|settings|hooks)))"
+    },
+    {
+      "id": "QINDUN.D3.SHELL_PROFILE_WRITE",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现命令解释器启动文件写入行为",
+      "summary": "代码可能修改用户的 shell 启动配置并形成跨会话影响",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:tee|echo|printf|write_text|writeFile|appendFile)[^\\n]{0,180}(?:\\.bashrc|\\.zshrc|\\.profile|config/fish/config\\.fish)"
+    },
+    {
+      "id": "QINDUN.D3.CLIPBOARD_EXFILTRATION",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现剪贴板读取与外传组合",
+      "summary": "代码读取剪贴板后调用网络发送能力，可能泄露用户复制的敏感内容",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:pbpaste|xclip\\s+(?:-[a-zA-Z]+\\s+)*-o|Get-Clipboard|clipboard\\.read).{0,260}(?:curl\\b|fetch\\(|requests\\.|https?://)"
+    },
+    {
+      "id": "QINDUN.D3.GIT_REMOTE_EXFILTRATION",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现新增远程仓库后上传内容",
+      "summary": "代码可能把本地内容提交到新增加的外部 Git 地址",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "git\\s+remote\\s+add[^\\n]{0,240}https?://.{0,500}git\\s+push"
+    },
+    {
+      "id": "QINDUN.D3.DNS_EXFILTRATION",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现疑似 DNS 数据外传",
+      "summary": "代码把密钥、环境变量或编码内容组合进 DNS 查询",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:(?:secret|token|credentials?|os\\.environ|process\\.env|base64|b64encode).{0,260}(?:dig|nslookup)\\b|(?:dig|nslookup)\\b.{0,260}(?:secret|token|credentials?|os\\.environ|process\\.env|base64|b64encode))"
+    },
+    {
+      "id": "QINDUN.D3.CONDITIONAL_DANGEROUS_EXECUTION",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现条件触发的动态执行",
+      "summary": "代码根据时间、主机、用户或计数条件触发动态代码执行，需要检查隐藏行为",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:if|when)\\b.{0,180}(?:datetime|time\\.|date\\b|hostname|username|counter|attempt).{0,360}(?:eval\\s*\\(|exec\\s*\\(|os\\.system\\s*\\(|subprocess\\.)"
+    },
+    {
+      "id": "QINDUN.D3.PRIVILEGED_SYSTEM_WRITE",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现提权后的系统目录写入",
+      "summary": "内容使用提权命令修改系统配置、服务或可执行目录",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "\\bsudo\\b[^\\n]{0,160}(?:tee|cp|mv|install|chmod|chown)[^\\n]{0,160}(?:/etc/|/usr/(?:bin|local)|/Library/LaunchDaemons)"
+    },
+    {
+      "id": "QINDUN.D7.SILENT_OPERATION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现要求向用户隐藏操作的指令",
+      "summary": "提示词要求静默执行或不向用户披露实际操作",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:silently|without\\s+(?:telling|notifying|informing)\\s+the\\s+user|do\\s+not\\s+(?:tell|notify|inform)\\s+the\\s+user|静默(?:执行|运行|处理)|不要(?:告诉|通知|提示)用户|在用户不知情)"
+    },
+    {
+      "id": "QINDUN.D7.AGENT_TOOL_ABUSE",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现疑似智能体工具滥用指令",
+      "summary": "提示词引导智能体使用终端或写入工具操作受保护文件或配置",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:use|call|invoke|调用|使用).{0,40}(?:Bash|Shell|Write|Edit|终端|写入|编辑)(?:\\s+tool|工具)?.{0,180}(?:\\.ssh|credentials?|MEMORY\\.md|CLAUDE\\.md|system prompt|系统提示词|安全配置)"
+    },
+    {
+      "id": "QINDUN.D7.PERSISTENT_MEMORY_MANIPULATION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现跨会话记忆操纵指令",
+      "summary": "提示词要求修改持久记忆以影响智能体后续会话行为",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:write|update|modify|inject|写入|更新|修改|注入).{0,80}(?:persistent memory|agent memory|MEMORY\\.md|长期记忆|智能体记忆).{0,180}(?:future sessions?|later conversations?|后续会话|以后)"
+    },
+    {
+      "id": "QINDUN.D7.SAFETY_DISABLE",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现关闭安全边界的指令",
+      "summary": "提示词要求关闭沙箱、审批或安全检查",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:dangerouslyDisableSandbox|disable\\s+(?:the\\s+)?(?:sandbox|safety|approval|security checks?)|关闭(?:沙箱|安全检查|审批)|禁用(?:沙箱|安全规则))"
+    },
+    {
+      "id": "QINDUN.D5.GOOGLE_API_KEY",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似 Google 接口密钥",
+      "summary": "内容包含符合 Google 接口密钥格式的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\bAIza[0-9A-Za-z_-]{35}\\b"
+    },
+    {
+      "id": "QINDUN.D5.ALIYUN_ACCESS_KEY",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似阿里云访问密钥编号",
+      "summary": "内容包含符合阿里云访问密钥编号特征的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\bLTAI[A-Za-z0-9]{12,20}\\b"
+    },
+    {
+      "id": "QINDUN.D5.DATABASE_CONNECTION",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现包含账号口令的数据库连接地址",
+      "summary": "数据库连接地址中疑似直接写入用户名和密码",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "\\b(?:postgres(?:ql)?|mysql|mongodb(?:\\+srv)?|redis)://[^\\s:/@]+:[^\\s@/]{4,}@[^\\s]+"
+    },
+    {
+      "id": "QINDUN.D5.TELEGRAM_BOT_TOKEN",
+      "version": "1.0.0",
+      "dimension": "D5",
+      "severity": "high",
+      "title": "发现疑似 Telegram 机器人令牌",
+      "summary": "内容包含符合 Telegram 机器人令牌格式的固定值",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "",
+      "pattern": "\\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\\b"
+    },
+    {
+      "id": "QINDUN.D6.SHORT_LINK_TARGET",
+      "version": "1.0.0",
+      "dimension": "D6",
+      "severity": "medium",
+      "title": "发现隐藏最终地址的短链接",
+      "summary": "短链接会隐藏最终网络目标，需要展开后重新审查",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "https?://(?:bit\\.ly|buff\\.ly|is\\.gd|ow\\.ly|t\\.co|tinyurl\\.com)(?:/|\\b)"
+    },
+    {
+      "id": "QINDUN.D6.DYNAMIC_DNS_TARGET",
+      "version": "1.0.0",
+      "dimension": "D6",
+      "severity": "high",
+      "title": "发现临时或动态域名目标",
+      "summary": "网络目标使用常见临时隧道或动态域名服务",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "https?://[^/\\s]+\\.(?:ngrok\\.io|serveo\\.net|localtunnel\\.me)(?:/|\\b)"
+    },
+    {
+      "id": "QINDUN.D6.PLAIN_IP_HTTP_TARGET",
+      "version": "1.0.0",
+      "dimension": "D6",
+      "severity": "high",
+      "title": "发现使用纯 IP 的网页目标",
+      "summary": "网页请求直接使用 IP 地址，缺少可核验的域名身份",
+      "disposition": "candidate",
+      "consumers": [
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "https?://(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5})?(?:/|\\b)"
+    },
+    {
+      "id": "QINDUN.D7.BROAD_TOOL_PERMISSION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现过宽的工具权限声明",
+      "summary": "技能或智能体声明了通配工具权限，无法证明只使用完成任务所需的最小权限",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:allowed[-_ ]?tools|tools|permissions?)\\s*[:=]\\s*(?:\\[[^\\]\\n]{0,160}[\"']?\\*[\"']?|[\"']?\\*[\"']?)"
+    },
+    {
+      "id": "QINDUN.D7.UNTRUSTED_CONTENT_PRIVILEGED_ACTION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现不可信内容可直接触发高权限操作",
+      "summary": "指令要求把网页、邮件或用户输入直接用于执行命令、写入或删除操作",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "(?:untrusted|user[- ]?(?:supplied|provided)|web(?:page|site)|email|issue|pull request|不可信|用户输入|网页|邮件|工单).{0,260}(?:execute|run|invoke|shell|terminal|write|delete|执行|运行|调用|终端|写入|删除).{0,160}(?:automatically|without (?:asking|confirmation)|自动|直接|无需确认)"
+    },
+    {
+      "id": "QINDUN.D7.MCP_DESCRIPTION_INJECTION",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "high",
+      "title": "发现模型上下文协议工具描述注入",
+      "summary": "模型上下文协议工具或服务器描述中包含覆盖上级指令的内容",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:tool[_ -]?description|server[_ -]?instructions?|工具描述|服务器指令).{0,240}(?:ignore|disregard|override|忽略|覆盖).{0,100}(?:system|developer|previous|prior|系统|开发者|此前|之前).{0,80}(?:instructions?|messages?|rules?|指令|消息|规则)"
+    },
+    {
+      "id": "QINDUN.D6.MCP_TOKEN_QUERY",
+      "version": "1.0.0",
+      "dimension": "D6",
+      "severity": "high",
+      "title": "发现令牌通过网址查询参数传递",
+      "summary": "网络地址把令牌或密钥放入查询参数，可能被代理、日志和浏览记录泄露",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "https?://[^\\s\"']{0,500}[?&](?:access[_-]?token|api[_-]?key|auth[_-]?token|token|key)=(?:\\$\\{?[A-Z_][A-Z0-9_]*\\}?|\\{\\{[^}]{1,100}\\}\\}|process\\.env\\.[A-Z_][A-Z0-9_]*)"
+    },
+    {
+      "id": "QINDUN.D7.MUTABLE_REMOTE_COMPONENT",
+      "version": "1.0.0",
+      "dimension": "D7",
+      "severity": "medium",
+      "title": "发现未固定版本的远程组件",
+      "summary": "技能、智能体或工作流引用主分支或 latest 地址，后续内容可在不改变作品包的情况下变化",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE",
+      "pattern": "https?://(?:raw\\.githubusercontent\\.com|github\\.com|gitlab\\.com)[^\\s\"']{0,400}(?:/(?:main|master)/|@(?:main|master)\\b|/releases/latest(?:/|\\b)|/latest(?:/|\\b))"
+    },
+    {
+      "id": "QINDUN.D3.MCP_ARGUMENT_EXECUTION",
+      "version": "1.0.0",
+      "dimension": "D3",
+      "severity": "high",
+      "title": "发现模型上下文协议参数进入执行入口",
+      "summary": "模型上下文协议工具参数疑似未经约束进入命令或动态代码执行入口",
+      "disposition": "candidate",
+      "consumers": [
+        "platform",
+        "local"
+      ],
+      "flags": "IGNORECASE|DOTALL",
+      "pattern": "(?:mcp.{0,40}(?:arguments?|params?|input)|tool[_ -]?(?:arguments?|input)|工具参数).{0,260}(?:eval\\s*\\(|exec\\s*\\(|os\\.system\\s*\\(|subprocess\\.|shell\\s*=\\s*true|child_process)"
+    }
+  ],
+  "evidence_policy": {
+    "format": "qindun-static-evidence-policy/v1",
+    "text_pattern_disposition": "candidate",
+    "confirmed_by": [
+      "python_ast",
+      "shell_structure",
+      "powershell_structure",
+      "javascript_data_flow"
+    ],
+    "rule_test_corpus": "rule-corpus-2026.08.5.json"
+  }
+}

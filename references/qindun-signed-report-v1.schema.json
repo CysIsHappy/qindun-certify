@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qindun.chinmarket.cn/schema/qindun-signed-report-v1.schema.json",
+  "title": "秦盾平台签名报告封装 v1",
+  "type": "object",
+  "required": [
+    "format",
+    "certification_no",
+    "report",
+    "report_digest",
+    "signature_algorithm",
+    "signing_key_id",
+    "signature",
+    "public_key"
+  ],
+  "properties": {
+    "format": {"const": "qindun-signed-report/v1"},
+    "certification_no": {"type": "string", "minLength": 1},
+    "report": {
+      "type": "object",
+      "required": ["report_version", "certification_no", "subject", "security_grade", "coverage", "signed_at", "expires_at"],
+      "properties": {
+        "report_version": {"const": "qindun-report/v2"},
+        "certification_no": {"type": "string", "minLength": 1},
+        "subject": {
+          "type": "object",
+          "required": ["artifact_bag_version_id", "server_sha256"],
+          "properties": {
+            "artifact_bag_version_id": {"type": "integer", "minimum": 1},
+            "server_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          },
+          "additionalProperties": true
+        },
+        "security_grade": {"enum": ["S_PLUS", "S", "A_PLUS", "A", "B", "C", "D"]},
+        "coverage": {
+          "type": "object",
+          "required": ["complete"],
+          "properties": {"complete": {"type": "boolean"}},
+          "additionalProperties": true
+        },
+        "public_findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+              "disposition": {"enum": ["candidate", "confirmed", "resolved"]}
+            },
+            "additionalProperties": true
+          }
+        },
+        "scan_mode": {"enum": ["basic", "dynamic"]},
+        "assurance_profile": {"enum": ["basic", "standard", "enhanced"]},
+        "manual_approval": {
+          "type": ["object", "null"],
+          "properties": {
+            "review_no": {"type": "string", "minLength": 1},
+            "approved_grade": {"const": "S_PLUS"}
+          },
+          "additionalProperties": true
+        },
+        "signed_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "security_grade": {"enum": ["S_PLUS", "S", "A_PLUS", "A", "B", "C"]}
+            }
+          },
+          "then": {
+            "properties": {
+              "coverage": {"properties": {"complete": {"const": true}}}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"security_grade": {"const": "D"}}},
+          "then": {
+            "required": ["public_findings"],
+            "properties": {
+              "public_findings": {
+                "contains": {
+                  "type": "object",
+                  "required": ["severity", "disposition"],
+                  "properties": {
+                    "severity": {"const": "critical"},
+                    "disposition": {"const": "confirmed"}
+                  }
+                },
+                "minContains": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"security_grade": {"enum": ["S", "S_PLUS"]}}},
+          "then": {
+            "required": ["scan_mode"],
+            "properties": {"scan_mode": {"const": "dynamic"}}
+          }
+        },
+        {
+          "if": {"properties": {"security_grade": {"const": "S_PLUS"}}},
+          "then": {
+            "required": ["assurance_profile", "manual_approval"],
+            "properties": {
+              "assurance_profile": {"const": "enhanced"},
+              "coverage": {"properties": {"complete": {"const": true}}},
+              "manual_approval": {
+                "type": "object",
+                "required": ["review_no", "approved_grade"]
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "report_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "signature_algorithm": {"const": "Ed25519"},
+    "signing_key_id": {"type": "string", "minLength": 1, "maxLength": 80},
+    "signature": {
+      "type": "string",
+      "minLength": 88,
+      "maxLength": 88,
+      "pattern": "^[A-Za-z0-9+/]{86}==$"
+    },
+    "public_key": {
+      "type": "string",
+      "minLength": 44,
+      "maxLength": 44,
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "revoked_at": {"type": ["string", "null"], "format": "date-time"},
+    "verification_status": {
+      "enum": ["valid", "revoked", "expired", "unsigned_or_invalid", "untrusted_issuer", null]
+    },
+    "status_checked_at": {"type": ["string", "null"], "format": "date-time"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,186 @@
+name: 秦盾本地安全预检
+description: 对仓库中的 Skill、Agent、工作流或作品包执行非官方本地预检
+inputs:
+  target:
+    description: 相对于仓库根目录的扫描目标
+    required: false
+    default: .
+  output-dir:
+    description: 可选的仓库内相对报告目录；必须位于扫描目标之外，默认使用运行器临时目录
+    required: false
+    default: ""
+  github-token:
+    description: 可选的 GitHub 只读令牌，仅用于仓库元数据和提交解析接口
+    required: false
+    default: ""
+  osv:
+    description: 是否向 OSV 查询公开依赖漏洞
+    required: false
+    default: "false"
+  fail-on-grade:
+    description: CI 风险门槛；C 表示 C/D 失败，D 表示仅 D 失败，不改变扫描结果或等级
+    required: false
+    default: C
+outputs:
+  report-directory:
+    description: 秦盾报告目录的绝对路径
+    value: ${{ steps.scan.outputs.report-directory }}
+  json-report:
+    description: 秦盾 JSON 结构化报告的绝对路径
+    value: ${{ steps.scan.outputs.json-report }}
+  markdown-report:
+    description: 秦盾 Markdown 可读报告的绝对路径
+    value: ${{ steps.scan.outputs.markdown-report }}
+  sarif-report:
+    description: 秦盾 SARIF 2.1.0 报告的绝对路径
+    value: ${{ steps.scan.outputs.sarif-report }}
+  scan-status:
+    description: 扫描覆盖状态 completed 或 partial
+    value: ${{ steps.scan.outputs.scan-status }}
+  security-grade:
+    description: 秦盾本地预检等级；扫描未完成时为 none
+    value: ${{ steps.scan.outputs.security-grade }}
+  scanner-exit-code:
+    description: 秦盾扫描器原始退出码
+    value: ${{ steps.scan.outputs.scanner-exit-code }}
+runs:
+  using: composite
+  steps:
+    - name: 运行秦盾本地预检
+      id: scan
+      shell: bash
+      env:
+        QINDUN_TARGET: ${{ inputs.target }}
+        QINDUN_OUTPUT_DIR: ${{ inputs.output-dir }}
+        QINDUN_GITHUB_TOKEN: ${{ inputs.github-token }}
+        QINDUN_OSV: ${{ inputs.osv }}
+        QINDUN_FAIL_ON_GRADE: ${{ inputs.fail-on-grade }}
+      run: |
+        set -euo pipefail
+        resolve_inside_workspace() {
+          python3 - "$GITHUB_WORKSPACE" "$1" "$2" <<'PY'
+        import pathlib
+        import sys
+
+        workspace = pathlib.Path(sys.argv[1]).resolve(strict=True)
+        value = sys.argv[2]
+        require_existing = sys.argv[3] == "existing"
+        relative = pathlib.Path(value)
+        if not value or relative.is_absolute() or ".." in relative.parts:
+            raise SystemExit(f"秦盾 Action 只接受仓库内的相对路径：{value}")
+        try:
+            resolved = (workspace / relative).resolve(strict=require_existing)
+            resolved.relative_to(workspace)
+        except (FileNotFoundError, RuntimeError, ValueError) as error:
+            raise SystemExit(f"路径不存在或越出仓库目录：{value}") from error
+        print(resolved)
+        PY
+        }
+        target_path="$(resolve_inside_workspace "$QINDUN_TARGET" existing)"
+        if [[ -n "$QINDUN_OUTPUT_DIR" ]]; then
+          output_path="$(resolve_inside_workspace "$QINDUN_OUTPUT_DIR" output)"
+        else
+          output_path="$(mktemp -d "$RUNNER_TEMP/qindun-reports.XXXXXX")"
+        fi
+        case "$QINDUN_OSV" in
+          true|false) ;;
+          *) echo "osv 只接受 true 或 false" >&2; exit 2 ;;
+        esac
+        case "$QINDUN_FAIL_ON_GRADE" in
+          C|D) ;;
+          *) echo "fail-on-grade 只接受 C 或 D" >&2; exit 2 ;;
+        esac
+        set --
+        if [[ "$QINDUN_OSV" == "true" ]]; then
+          set -- --osv
+        fi
+        set +e
+        python3 "$GITHUB_ACTION_PATH/scripts/qindun.py" \
+          "$target_path" \
+          --format json \
+          --format markdown \
+          --format sarif \
+          --output-dir "$output_path" \
+          "$@"
+        scanner_exit=$?
+        set -e
+        python3 - \
+          "$output_path" \
+          "$QINDUN_FAIL_ON_GRADE" \
+          "$scanner_exit" \
+          "$GITHUB_OUTPUT" <<'PY'
+        import json
+        import pathlib
+        import sys
+
+        output = pathlib.Path(sys.argv[1]).resolve(strict=True)
+        threshold = sys.argv[2]
+        scanner_exit = int(sys.argv[3])
+        github_output = pathlib.Path(sys.argv[4])
+
+        try:
+            summary = json.loads(
+                (output / "summary.json").read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SystemExit("秦盾 Action 没有生成有效的本次扫描摘要") from error
+        items = summary.get("items") if isinstance(summary, dict) else None
+        if not isinstance(items, list) or len(items) != 1:
+            raise SystemExit("秦盾 Action 的本次扫描摘要必须且只能包含一个目标")
+        output_values = items[0].get("outputs") if isinstance(items[0], dict) else None
+        if not isinstance(output_values, list):
+            raise SystemExit("秦盾 Action 的本次扫描摘要缺少报告清单")
+        current_outputs = []
+        for value in output_values:
+            try:
+                path = pathlib.Path(value).resolve(strict=True)
+                path.relative_to(output)
+            except (FileNotFoundError, RuntimeError, TypeError, ValueError) as error:
+                raise SystemExit("秦盾 Action 的本次报告路径无效") from error
+            current_outputs.append(path)
+        reports = [path for path in current_outputs if path.suffix == ".json"]
+        markdown = [path for path in current_outputs if path.suffix == ".md"]
+        sarif = [path for path in current_outputs if path.suffix == ".sarif"]
+
+        def emit(name: str, value: object) -> None:
+            rendered = str(value)
+            if "\n" in rendered or "\r" in rendered:
+                raise SystemExit(f"Action 输出包含换行：{name}")
+            with github_output.open("a", encoding="utf-8") as stream:
+                stream.write(f"{name}={rendered}\n")
+
+        emit("report-directory", output)
+        emit("scanner-exit-code", scanner_exit)
+        if len(reports) != 1 or len(sarif) != 1 or len(markdown) != 1:
+            raise SystemExit("秦盾 Action 没有生成唯一的 JSON、Markdown 和 SARIF 报告")
+
+        report_path = reports[0]
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SystemExit("秦盾 Action 的 JSON 报告格式无效") from error
+        if report.get("format") != "qindun-local-report/v3":
+            raise SystemExit("秦盾 Action 的 JSON 报告格式版本无效")
+        status = str(report.get("scan_status") or "failed")
+        grade = str(report.get("local_grade_preview") or "none")
+        emit("json-report", report_path)
+        emit("markdown-report", markdown[0])
+        emit("sarif-report", sarif[0])
+        emit("scan-status", status)
+        emit("security-grade", grade)
+
+        if scanner_exit not in {0, 10, 11}:
+            raise SystemExit(scanner_exit or 3)
+        if status != "completed" or grade == "none":
+            raise SystemExit(11)
+        if grade not in {"B", "C", "D"}:
+            raise SystemExit(3)
+        expected_scanner_exit = 10 if grade in {"C", "D"} else 0
+        if scanner_exit != expected_scanner_exit:
+            raise SystemExit(3)
+        if grade == "D" or (grade == "C" and threshold == "C"):
+            raise SystemExit(10)
+        PY
+branding:
+  icon: shield
+  color: blue

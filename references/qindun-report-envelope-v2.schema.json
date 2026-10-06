@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qindun.chinmarket.cn/schema/qindun-report-envelope-v2.schema.json",
+  "title": "秦盾平台报告封装 v2",
+  "description": "秦盾企业离线包内的平台报告封装；签名范围是规范化报告正文，沿革位置由企业离线包验证器复核。",
+  "type": "object",
+  "required": [
+    "format",
+    "certification_no",
+    "report",
+    "report_digest",
+    "signature_algorithm",
+    "signing_key_id",
+    "signature",
+    "public_key",
+    "signed_at",
+    "expires_at",
+    "report_sequence",
+    "previous_report_digest",
+    "report_chain_digest",
+    "verification_status",
+    "status_checked_at"
+  ],
+  "properties": {
+    "format": {"const": "qindun-report-envelope/v2"},
+    "certification_no": {"type": "string", "minLength": 1},
+    "report": {
+      "type": "object",
+      "required": [
+        "report_version",
+        "certification_no",
+        "subject",
+        "profile",
+        "grade_scheme_version",
+        "scan_mode",
+        "assurance_profile",
+        "security_grade",
+        "scan_plan",
+        "scan_plan_digest",
+        "coverage",
+        "execution_identity",
+        "signed_at",
+        "expires_at"
+      ]
+    },
+    "report_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "signature_algorithm": {"const": "Ed25519"},
+    "signing_key_id": {"type": "string", "minLength": 1, "maxLength": 80},
+    "signature": {"type": "string", "minLength": 88, "maxLength": 88, "pattern": "^[A-Za-z0-9+/]{86}==$"},
+    "public_key": {"type": "string", "minLength": 44, "maxLength": 44, "pattern": "^[A-Za-z0-9+/]{43}=$"},
+    "signed_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "revoked_at": {"type": ["string", "null"], "format": "date-time"},
+    "revocation_reason": {"type": ["string", "null"]},
+    "report_sequence": {"type": "integer", "minimum": 1},
+    "previous_report_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "report_chain_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "verification_status": {"enum": ["valid", "revoked", "expired", "unsigned_or_invalid", "untrusted_issuer"]},
+    "status_checked_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qinshield.cn/schemas/qindun-capabilities-v1.schema.json",
+  "title": "QinDun capability declaration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "filesystem", "network", "process", "environment", "mcp_tools", "persistent_state"],
+  "properties": {
+    "format": {"const": "qindun-capabilities/v1"},
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write"],
+      "properties": {"read": {"$ref": "#/$defs/stringList"}, "write": {"$ref": "#/$defs/stringList"}}
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "domains"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "domains": {"$ref": "#/$defs/domainList"}
+      },
+      "if": {"properties": {"required": {"const": false}}, "required": ["required"]},
+      "then": {"properties": {"domains": {"maxItems": 0}}}
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spawn", "commands"],
+      "properties": {"spawn": {"type": "boolean"}, "commands": {"$ref": "#/$defs/stringList"}},
+      "if": {"properties": {"spawn": {"const": false}}, "required": ["spawn"]},
+      "then": {"properties": {"commands": {"maxItems": 0}}}
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variables", "secrets"],
+      "properties": {"variables": {"$ref": "#/$defs/stringList"}, "secrets": {"$ref": "#/$defs/stringList"}}
+    },
+    "mcp_tools": {"$ref": "#/$defs/stringList"},
+    "persistent_state": {"type": "boolean"},
+    "browser": {"type": "boolean"},
+    "databases": {"$ref": "#/$defs/stringList"},
+    "dynamic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "working_directory"],
+      "properties": {
+        "entrypoint": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/stringList"}]},
+        "working_directory": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S"}
+      }
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S"}
+    },
+    "domainList": {
+      "type": "array",
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "^(?:\\*\\.)?[A-Za-z0-9.-]+$"}
+    }
+  }
+}

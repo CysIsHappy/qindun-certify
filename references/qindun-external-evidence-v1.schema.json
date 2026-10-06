@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qindun.chinmarket.cn/schema/qindun-external-evidence-v1.schema.json",
+  "title": "秦盾外部扫描候选证据 v1",
+  "type": "object",
+  "required": [
+    "format",
+    "policy",
+    "status",
+    "requested",
+    "scanners",
+    "manual_review_required",
+    "grade_cap",
+    "limitations"
+  ],
+  "properties": {
+    "format": {"const": "qindun-external-evidence/v1"},
+    "policy": {
+      "type": "object",
+      "required": ["version", "digest", "authority", "score_aggregation"],
+      "properties": {
+        "version": {"const": "qindun-external-evidence-policy/v1"},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "authority": {"const": "candidate_only"},
+        "score_aggregation": {"const": "forbidden"}
+      },
+      "additionalProperties": true
+    },
+    "status": {"enum": ["completed", "partial"]},
+    "requested": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["aig", "cisco", "skillspector"]}
+    },
+    "scanners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "source_disclosure", "finding_count", "findings", "duration_ms"],
+        "properties": {
+          "id": {"enum": ["aig", "cisco", "skillspector"]},
+          "status": {"enum": ["completed", "failed", "skipped", "unavailable", "authorization_required"]},
+          "source_disclosure": {"type": "boolean"},
+          "finding_count": {"type": "integer", "minimum": 0, "maximum": 200},
+          "duration_ms": {"type": "integer", "minimum": 0},
+          "raw_report_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "verdict": {"enum": ["clean", "risky", "unknown"]},
+          "findings": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "required": [
+                "external_rule_id",
+                "title",
+                "summary",
+                "severity",
+                "dimension",
+                "related_dimensions",
+                "path",
+                "disposition",
+                "source",
+                "deterministic"
+              ],
+              "properties": {
+                "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+                "dimension": {"pattern": "^D[2-8]$"},
+                "related_dimensions": {"type": "array", "items": {"pattern": "^D[2-8]$"}},
+                "disposition": {"const": "candidate"},
+                "deterministic": {"const": false}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "manual_review_required": {"type": "boolean"},
+    "grade_cap": {"enum": ["C", null]},
+    "limitations": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"grade_cap": {"const": "C"}}},
+      "then": {
+        "properties": {
+          "manual_review_required": {"const": true},
+          "scanners": {
+            "contains": {
+              "properties": {
+                "findings": {
+                  "contains": {
+                    "properties": {"severity": {"enum": ["high", "critical"]}},
+                    "required": ["severity"]
+                  }
+                }
+              },
+              "required": ["findings"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "completed"}}},
+      "then": {
+        "properties": {
+          "scanners": {
+            "items": {"properties": {"status": {"const": "completed"}}}
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

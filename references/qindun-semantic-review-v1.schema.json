@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qinshield.cn/schemas/qindun-semantic-review-v1.schema.json",
+  "title": "QinDun semantic review result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "official_certification", "affects_local_grade", "target_sha256", "items", "summary"],
+  "properties": {
+    "format": {"const": "qindun-semantic-review/v1"},
+    "official_certification": {"const": false},
+    "affects_local_grade": {"const": false},
+    "target_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "items": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule_id", "path", "line", "conclusion", "suggested_severity", "confidence", "reason"],
+        "properties": {
+          "rule_id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "line": {"type": "integer", "minimum": 1},
+          "conclusion": {"enum": ["confirmed_concern", "reasonable_behavior", "insufficient_evidence", "documentation_example"]},
+          "suggested_severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "summary": {"type": "string", "minLength": 1}
+  }
+}

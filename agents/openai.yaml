@@ -1,0 +1,8 @@
+interface:
+  display_name: "秦盾本地安全预检"
+  short_description: "预检作品包，验证平台报告或秦盾签名发布包"
+  brand_color: "#006BE6"
+  default_prompt: "使用 $qindun-certify 预检我提供的 Skill、Agent、工作流、ZIP 或 GitHub 仓库，验证秦盾平台签名报告，或安全验证和安装秦盾签名发布包。"
+
+policy:
+  allow_implicit_invocation: true

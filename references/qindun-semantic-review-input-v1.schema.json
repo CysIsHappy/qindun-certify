@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qinshield.cn/schemas/qindun-semantic-review-input-v1.schema.json",
+  "title": "QinDun semantic review input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "official_certification", "target", "instructions", "candidate_count", "included_count", "truncated", "requests"],
+  "properties": {
+    "format": {"const": "qindun-semantic-review-input/v1"},
+    "official_certification": {"const": false},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256", "sha256_kind"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sha256_kind": {"enum": ["content_manifest", "zip_file"]}
+      }
+    },
+    "instructions": {"type": "string", "minLength": 1},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "included_count": {"type": "integer", "minimum": 0, "maximum": 50},
+    "truncated": {"type": "boolean"},
+    "requests": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule_id", "dimension", "severity", "path", "line", "summary", "context"],
+        "properties": {
+          "rule_id": {"type": "string", "minLength": 1},
+          "dimension": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+          "path": {"type": "string", "minLength": 1},
+          "line": {"type": "integer", "minimum": 1},
+          "summary": {"type": "string", "minLength": 1},
+          "context": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start_line", "lines"],
+            "properties": {
+              "start_line": {"type": "integer", "minimum": 1},
+              "lines": {"type": "array", "maxItems": 21, "items": {"type": "string", "maxLength": 1000}}
+            }
+          }
+        }
+      }
+    }
+  }
+}

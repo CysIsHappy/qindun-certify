@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qindun.chinmarket.cn/schema/qindun-local-report-v3.schema.json",
+  "title": "秦盾本地预检报告 v3",
+  "type": "object",
+  "required": [
+    "format",
+    "official_certification",
+    "generated_at",
+    "scanner",
+    "rule_bundle",
+    "target",
+    "scan_status",
+    "local_grade_preview",
+    "coverage",
+    "findings"
+  ],
+  "properties": {
+    "format": {"const": "qindun-local-report/v3"},
+    "official_certification": {"const": false},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "scanner": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"const": "qindun-certify"},
+        "version": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
+    "rule_bundle": {
+      "type": "object",
+      "required": ["version", "digest", "grade_policy"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "grade_policy": {"const": "qindun-grade-policy/v1"}
+      },
+      "additionalProperties": true
+    },
+    "target": {
+      "type": "object",
+      "required": ["name", "kind", "sha256", "sha256_kind", "digest_complete", "file_count", "expanded_bytes"],
+      "properties": {
+        "name": {"type": "string"},
+        "kind": {"enum": ["directory", "zip"]},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "sha256_kind": {"enum": ["content_manifest", "zip_file"]},
+        "digest_complete": {"type": "boolean"},
+        "file_count": {"type": "integer", "minimum": 0},
+        "expanded_bytes": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "scan_status": {"enum": ["completed", "partial"]},
+    "local_grade_preview": {"enum": ["B", "C", "D", null]},
+    "manual_review_required": {"type": "boolean"},
+    "grade_decision_reason": {"type": "string"},
+    "external_scanners": {
+      "type": "object",
+      "required": ["format", "policy", "status", "requested", "scanners", "manual_review_required", "grade_cap", "limitations"],
+      "properties": {
+        "format": {"const": "qindun-external-evidence/v1"},
+        "status": {"enum": ["completed", "partial"]},
+        "manual_review_required": {"type": "boolean"},
+        "grade_cap": {"enum": ["C", null]},
+        "scanners": {"type": "array"}
+      },
+      "additionalProperties": true
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["version", "complete", "controls", "incomplete_reasons", "statistics", "not_covered"],
+      "properties": {
+        "version": {"const": "qindun-local-coverage/v3"},
+        "complete": {"type": "boolean"},
+        "controls": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["code", "status"],
+            "properties": {
+              "code": {"type": "string", "minLength": 1},
+              "status": {"enum": ["completed", "partial", "not_applicable"]}
+            },
+            "additionalProperties": true
+          }
+        },
+        "incomplete_reasons": {"type": "array", "items": {"type": "string"}},
+        "statistics": {"type": "object"},
+        "not_covered": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "rule_id",
+          "severity",
+          "title",
+          "summary",
+          "path",
+          "evidence",
+          "evidence_digest",
+          "dimension",
+          "rule_version",
+          "disposition",
+          "source",
+          "deterministic",
+          "remediation",
+          "help_uri"
+        ],
+        "properties": {
+          "rule_id": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+          "title": {"type": "string"},
+          "summary": {"type": "string"},
+          "path": {"type": "string"},
+          "line": {"type": ["integer", "null"], "minimum": 1},
+          "evidence": {"type": "string"},
+          "evidence_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "dimension": {"type": "string", "pattern": "^D[2-8]$"},
+          "rule_version": {"type": "string"},
+          "disposition": {"enum": ["candidate", "confirmed"]},
+          "source": {"type": "string"},
+          "deterministic": {"type": "boolean"},
+          "remediation": {"type": "string", "minLength": 1},
+          "help_uri": {"type": "string", "pattern": "^https://"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"scan_status": {"const": "completed"}}},
+      "then": {
+        "properties": {
+          "local_grade_preview": {"enum": ["B", "C", "D"]},
+          "coverage": {
+            "properties": {
+              "complete": {"const": true},
+              "incomplete_reasons": {"maxItems": 0},
+              "controls": {
+                "items": {
+                  "properties": {
+                    "status": {"enum": ["completed", "not_applicable"]}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"scan_status": {"const": "partial"}}},
+      "then": {
+        "properties": {
+          "local_grade_preview": {"enum": ["D", null]},
+          "coverage": {
+            "properties": {
+              "complete": {"const": false},
+              "incomplete_reasons": {"minItems": 1},
+              "controls": {
+                "contains": {
+                  "properties": {"status": {"const": "partial"}},
+                  "required": ["status"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"local_grade_preview": {"const": "B"}}},
+      "then": {
+        "properties": {
+          "findings": {
+            "not": {
+              "contains": {
+                "properties": {
+                  "severity": {"enum": ["high", "critical"]}
+                },
+                "required": ["severity"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"local_grade_preview": {"const": "C"}}},
+      "then": {
+        "properties": {
+          "findings": {
+            "not": {
+              "contains": {
+                "properties": {
+                  "severity": {"const": "critical"},
+                  "disposition": {"const": "confirmed"},
+                  "deterministic": {"const": true}
+                },
+                "required": ["severity", "disposition", "deterministic"]
+              }
+            }
+          }
+        },
+        "anyOf": [
+          {
+            "properties": {
+              "findings": {
+                "contains": {
+                  "properties": {"severity": {"enum": ["high", "critical"]}},
+                  "required": ["severity"]
+                }
+              }
+            }
+          },
+          {
+            "required": ["external_scanners", "manual_review_required"],
+            "properties": {
+              "manual_review_required": {"const": true},
+              "external_scanners": {
+                "properties": {
+                  "grade_cap": {"const": "C"},
+                  "scanners": {
+                    "contains": {
+                      "properties": {
+                        "findings": {
+                          "contains": {
+                            "properties": {"severity": {"enum": ["high", "critical"]}},
+                            "required": ["severity"]
+                          }
+                        }
+                      },
+                      "required": ["findings"]
+                    }
+                  }
+                },
+                "required": ["grade_cap"]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {"properties": {"local_grade_preview": {"const": "D"}}},
+      "then": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "properties": {
+                "severity": {"const": "critical"},
+                "disposition": {"const": "confirmed"},
+                "deterministic": {"const": true}
+              },
+              "required": ["severity", "disposition", "deterministic"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "target": {"properties": {"digest_complete": {"const": true}}}
+        }
+      },
+      "then": {
+        "properties": {
+          "target": {
+            "properties": {
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qinshield.cn/schemas/qindun-release-signature-v1.schema.json",
+  "title": "QinDun release manifest signature v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "signature_algorithm", "signing_key_id", "manifest_sha256", "public_key", "signature"],
+  "properties": {
+    "format": {"const": "qindun-release-signature/v1"},
+    "signature_algorithm": {"const": "Ed25519"},
+    "signing_key_id": {"type": "string", "minLength": 1, "maxLength": 80},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "public_key": {"type": "string", "contentEncoding": "base64", "minLength": 44, "maxLength": 44},
+    "signature": {"type": "string", "contentEncoding": "base64", "minLength": 88, "maxLength": 88}
+  }
+}

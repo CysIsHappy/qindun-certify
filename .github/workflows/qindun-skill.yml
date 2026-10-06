@@ -1,0 +1,178 @@
+name: QinDun Skill Checks
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "**"
+      - "action.yml"
+      - ".github/workflows/qindun-skill.yml"
+  push:
+    branches:
+      - main
+      - "codex/**"
+    paths:
+      - "**"
+      - "action.yml"
+      - ".github/workflows/qindun-skill.yml"
+
+jobs:
+  local-skill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install verification dependency
+        run: python -m pip install "cryptography==44.0.3" "jsonschema==4.25.1"
+
+      - name: Run QinDun Skill tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build reproducible release archive
+        run: >-
+          python scripts/package_release.py
+          --output-dir /tmp/qindun-dist
+          --unsigned-development-build
+
+      - name: Record cross-runner release digest
+        run: |
+          archive="/tmp/qindun-dist/qindun-certify-$(cat VERSION).zip"
+          sha256sum "$archive" | cut -d ' ' -f 1 \
+            > "/tmp/qindun-release-${{ matrix.python-version }}.sha256"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qindun-release-digest-${{ matrix.python-version }}
+          path: /tmp/qindun-release-${{ matrix.python-version }}.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Self-scan release archive
+        run: |
+          python scripts/qindun.py \
+            "/tmp/qindun-dist/qindun-certify-$(cat VERSION).zip" \
+            --format json \
+            --format sarif \
+            --output-dir /tmp/qindun-self-scan
+
+      - name: Validate local report, CycloneDX and SARIF schemas
+        run: |
+          python - <<'PY'
+          import json
+          import hashlib
+          import pathlib
+          import urllib.request
+
+          import jsonschema
+
+          output = pathlib.Path("/tmp/qindun-self-scan")
+          reports = []
+          for path in output.glob("*.json"):
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              if payload.get("format") == "qindun-local-report/v3":
+                  reports.append(payload)
+          if len(reports) != 1:
+              raise SystemExit("expected exactly one QinDun local report")
+          report = reports[0]
+          sarif_paths = list(output.glob("*.sarif"))
+          if len(sarif_paths) != 1:
+              raise SystemExit("expected exactly one SARIF report")
+
+          external_schema_digests = {
+              "https://cyclonedx.org/schema/bom-1.6.schema.json":
+                  "1ebcb88a2c845ecb6ff7bee7aeabdff9422cb0347f3d6875b241bd444b7e098f",
+              "https://json.schemastore.org/sarif-2.1.0.json":
+                  "7c9688f0a1c4a4e1649ecc78521087e664729c1dff56ee8212ff195c7b16132a",
+          }
+
+          def load_schema(url: str) -> dict:
+              request = urllib.request.Request(url, headers={"User-Agent": "qindun-ci"})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  raw = response.read(8 * 1024 * 1024 + 1)
+              if len(raw) > 8 * 1024 * 1024:
+                  raise SystemExit(f"schema too large: {url}")
+              actual_digest = hashlib.sha256(raw).hexdigest()
+              if actual_digest != external_schema_digests[url]:
+                  raise SystemExit(f"external schema digest changed: {url}")
+              return json.loads(raw)
+
+          def validate(instance: object, schema: dict) -> None:
+              validator = jsonschema.validators.validator_for(schema)
+              validator.check_schema(schema)
+              validator(schema).validate(instance)
+
+          local_schema = json.loads(
+              pathlib.Path(
+                  "references/qindun-local-report-v3.schema.json"
+              ).read_text(encoding="utf-8")
+          )
+          validate(report, local_schema)
+          references = pathlib.Path("references")
+          rules = pathlib.Path("rules")
+          protocol_schemas = {
+              path.name: json.loads(path.read_text(encoding="utf-8"))
+              for path in references.glob("qindun-*.schema.json")
+          }
+          for schema in protocol_schemas.values():
+              jsonschema.Draft202012Validator.check_schema(schema)
+          bundle_schema = json.loads(
+              (rules / "qindun-rule-bundle-v1.schema.json").read_text(encoding="utf-8")
+          )
+          corpus_schema = json.loads(
+              (rules / "qindun-rule-corpus-v1.schema.json").read_text(encoding="utf-8")
+          )
+          validate(
+              json.loads((rules / "rules-2026.09.2.json").read_text(encoding="utf-8")),
+              bundle_schema,
+          )
+          validate(
+              json.loads((rules / "rule-corpus-2026.09.2.json").read_text(encoding="utf-8")),
+              corpus_schema,
+          )
+          validate(
+              json.loads((output / "summary.json").read_text(encoding="utf-8")),
+              protocol_schemas["qindun-batch-summary-v1.schema.json"],
+          )
+          release_manifest = next(pathlib.Path("/tmp/qindun-dist").glob("*.manifest.json"))
+          validate(
+              json.loads(release_manifest.read_text(encoding="utf-8")),
+              protocol_schemas["qindun-release-manifest-v1.schema.json"],
+          )
+          validate(
+              report["dependency_inventory"]["sbom"],
+              load_schema("https://cyclonedx.org/schema/bom-1.6.schema.json"),
+          )
+          validate(
+              json.loads(sarif_paths[0].read_text(encoding="utf-8")),
+              load_schema("https://json.schemastore.org/sarif-2.1.0.json"),
+          )
+          PY
+
+  release-reproducibility:
+    needs: local-skill
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: qindun-release-digest-*
+          path: /tmp/qindun-release-digests
+          merge-multiple: true
+
+      - name: Compare release digests across independent runners
+        run: |
+          test "$(find /tmp/qindun-release-digests -type f | wc -l)" -eq 3
+          test "$(cat /tmp/qindun-release-digests/* | sort -u | wc -l)" -eq 1

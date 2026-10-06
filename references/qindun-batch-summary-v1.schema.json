@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qinshield.cn/schemas/qindun-batch-summary-v1.schema.json",
+  "title": "QinDun batch scan summary v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "items"],
+  "properties": {
+    "format": {"const": "qindun-batch-summary/v1"},
+    "items": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"}
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "status", "grade", "exit_code", "outputs"],
+      "properties": {
+        "target": {"type": "string", "minLength": 1},
+        "status": {"enum": ["completed", "partial", "failed"]},
+        "grade": {"type": ["string", "null"], "enum": ["B", "C", "D", null]},
+        "exit_code": {"enum": [0, 3, 10, 11]},
+        "outputs": {"type": "array", "items": {"type": "string"}},
+        "source": {"type": "object"},
+        "error": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "failed"}}, "required": ["status"]},
+          "then": {"required": ["error"], "properties": {"exit_code": {"const": 3}, "grade": {"type": "null"}}},
+          "else": {"required": ["source"]}
+        }
+      ]
+    }
+  }
+}

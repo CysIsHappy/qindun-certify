@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qinshield.cn/schemas/qindun-rule-bundle-v1.schema.json",
+  "title": "秦盾规则包",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "grade_policy", "rules", "evidence_policy"],
+  "properties": {
+    "format": {"const": "qindun-rule-bundle/v1"},
+    "version": {"type": "string", "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]+$"},
+    "grade_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "confirmed_danger", "finding_grade_caps", "local_maximum_grade"],
+      "properties": {
+        "format": {"const": "qindun-grade-policy/v1"},
+        "confirmed_danger": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["severity", "disposition"],
+          "properties": {
+            "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+            "disposition": {"enum": ["candidate", "confirmed"]}
+          }
+        },
+        "finding_grade_caps": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["info", "low", "medium", "high", "critical"],
+          "properties": {
+            "info": {"$ref": "#/$defs/grade"},
+            "low": {"$ref": "#/$defs/grade"},
+            "medium": {"$ref": "#/$defs/grade"},
+            "high": {"$ref": "#/$defs/grade"},
+            "critical": {"$ref": "#/$defs/grade"}
+          }
+        },
+        "local_maximum_grade": {"const": "B"}
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {"$ref": "#/$defs/rule"}
+    },
+    "evidence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "text_pattern_disposition", "confirmed_by", "rule_test_corpus"],
+      "properties": {
+        "format": {"const": "qindun-static-evidence-policy/v1"},
+        "text_pattern_disposition": {"const": "candidate"},
+        "confirmed_by": {
+          "type": "array",
+          "minItems": 4,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "rule_test_corpus": {
+          "type": "string",
+          "pattern": "^rule-corpus-[0-9]{4}\\.[0-9]{2}\\.[0-9]+\\.json$"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "grade": {"enum": ["D", "C", "B", "A", "A_PLUS", "S", "S_PLUS"]},
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "version", "dimension", "severity", "title", "summary",
+        "disposition", "consumers", "flags", "pattern"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^QINDUN\\.D[0-9]+\\.[A-Z0-9_]+$"},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "dimension": {"type": "string", "pattern": "^D[0-9]+$"},
+        "severity": {"enum": ["info", "low", "medium", "high", "critical"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "disposition": {"enum": ["candidate", "confirmed"]},
+        "consumers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["local", "platform"]}
+        },
+        "flags": {"enum": ["", "IGNORECASE", "DOTALL", "IGNORECASE|DOTALL"]},
+        "pattern": {"type": "string", "minLength": 1, "maxLength": 5000}
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/openclaw/clawscan/main/schemas/clawscan.schema.json
+version: 1
+profiles:
+  qindun:
+    scanners:
+      - id: qindun
+        command: qindun clawscan-adapter {{target}}
+        targets:
+          - skill
+          - plugin
+        gate:
+          rules:
+            - id: qindun-grade-c
+              path: local_grade_preview
+              equals: C
+              action: warn
+            - id: qindun-grade-d
+              path: local_grade_preview
+              equals: D
+              action: warn
+            - id: qindun-partial
+              path: scan_status
+              equals: partial
+              action: warn
+            - id: qindun-external-partial
+              path: external_scanners.status
+              equals: partial
+              action: warn

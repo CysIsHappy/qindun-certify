@@ -1,0 +1,17 @@
+{
+  "format": "qindun-external-taxonomy-map/v1",
+  "version": "2026.08.1",
+  "source_taxonomy": "SkillTrustBench T01-T09",
+  "authority": "candidate_only",
+  "mappings": {
+    "T01": {"primary_dimension": "D7", "related_dimensions": ["D7"], "name_zh": "指令劫持"},
+    "T02": {"primary_dimension": "D7", "related_dimensions": ["D7"], "name_zh": "记忆污染"},
+    "T03": {"primary_dimension": "D3", "related_dimensions": ["D3", "D6"], "name_zh": "远程载荷下载与执行"},
+    "T04": {"primary_dimension": "D3", "related_dimensions": ["D3"], "name_zh": "嵌入恶意代码"},
+    "T05": {"primary_dimension": "D3", "related_dimensions": ["D3", "D8"], "name_zh": "权限提升或越权访问"},
+    "T06": {"primary_dimension": "D3", "related_dimensions": ["D3"], "name_zh": "持久驻留"},
+    "T07": {"primary_dimension": "D7", "related_dimensions": ["D3", "D7"], "name_zh": "工具劫持或冒充"},
+    "T08": {"primary_dimension": "D4", "related_dimensions": ["D4"], "name_zh": "不安全依赖"},
+    "T09": {"primary_dimension": "D3", "related_dimensions": ["D2", "D3", "D5"], "name_zh": "不安全编码"}
+  }
+}
