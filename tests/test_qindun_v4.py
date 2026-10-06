@@ -596,7 +596,11 @@ class QindunV4Test(unittest.TestCase):
             self.assertIn("test_versioned_rule_bundle_is_shared_with_open_preflight_skill", workflow)
             self.assertIn("test_local_and_platform_static_context_contract", workflow)
             self.assertIn("test_versioned_qindun_acceptance_corpus", workflow)
-        self.assertIn("https://json.schemastore.org/sarif-2.1.0.json", workflow)
+        self.assertIn(
+            "https://raw.githubusercontent.com/SchemaStore/schemastore/"
+            "734c0e50105228741c0b76853efdd81b5f93487c/src/schemas/json/sarif-2.1.0.json",
+            workflow,
+        )
         self.assertIn("https://cyclonedx.org/schema/bom-1.6.schema.json", workflow)
         self.assertIn("external_schema_digests", workflow)
         self.assertIn("release-reproducibility:", workflow)

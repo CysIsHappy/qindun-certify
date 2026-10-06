@@ -94,7 +94,7 @@ jobs:
           external_schema_digests = {
               "https://cyclonedx.org/schema/bom-1.6.schema.json":
                   "1ebcb88a2c845ecb6ff7bee7aeabdff9422cb0347f3d6875b241bd444b7e098f",
-              "https://json.schemastore.org/sarif-2.1.0.json":
+              "https://raw.githubusercontent.com/SchemaStore/schemastore/734c0e50105228741c0b76853efdd81b5f93487c/src/schemas/json/sarif-2.1.0.json":
                   "7c9688f0a1c4a4e1649ecc78521087e664729c1dff56ee8212ff195c7b16132a",
           }
 
@@ -157,7 +157,7 @@ jobs:
           )
           validate(
               json.loads(sarif_paths[0].read_text(encoding="utf-8")),
-              load_schema("https://json.schemastore.org/sarif-2.1.0.json"),
+              load_schema("https://raw.githubusercontent.com/SchemaStore/schemastore/734c0e50105228741c0b76853efdd81b5f93487c/src/schemas/json/sarif-2.1.0.json"),
           )
           PY
 
