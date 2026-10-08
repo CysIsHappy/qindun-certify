@@ -71,12 +71,13 @@ def build(target: Path, report: dict, *, context_lines: int = 4) -> dict:
     if not expected or fresh["target"]["sha256"] != expected:
         raise ValueError("报告与当前扫描对象摘要不一致")
     all_candidates = [
-        item
-        for item in report.get("findings") or []
-        if item.get("disposition") == "candidate" and item.get("line")
+        (index, item)
+        for index, item in enumerate(report.get("findings") or [])
+        if item.get("disposition") == "candidate"
     ]
     candidates = all_candidates[:MAX_REQUESTS]
     requests = []
+    unavailable_contexts = []
     archive = None
     if target.is_file():
         try:
@@ -84,7 +85,14 @@ def build(target: Path, report: dict, *, context_lines: int = 4) -> dict:
         except (BadZipFile, OSError) as error:
             raise ValueError("目标不是有效 ZIP") from error
     try:
-        for item in candidates:
+        for index, item in candidates:
+            line = item.get("line")
+            if line is None or type(line) is not int or line < 1:
+                unavailable_contexts.append({
+                    "finding_index": index,
+                    "reason": "missing_line" if line is None else "invalid_line",
+                })
+                continue
             path = str(item.get("path") or "")
             text = (
                 _directory_text(target, path)
@@ -92,6 +100,10 @@ def build(target: Path, report: dict, *, context_lines: int = 4) -> dict:
                 else _zip_text(archive, path) if archive is not None else None
             )
             if text is None:
+                unavailable_contexts.append({"finding_index": index, "reason": "source_unavailable"})
+                continue
+            if line > len(text.splitlines()):
+                unavailable_contexts.append({"finding_index": index, "reason": "line_out_of_range"})
                 continue
             requests.append(
                 {
@@ -121,6 +133,8 @@ def build(target: Path, report: dict, *, context_lines: int = 4) -> dict:
         ),
         "candidate_count": len(all_candidates),
         "included_count": len(requests),
+        "omitted_count": len(all_candidates) - len(requests),
+        "unavailable_contexts": unavailable_contexts,
         "truncated": len(all_candidates) > MAX_REQUESTS,
         "requests": requests,
     }

@@ -134,12 +134,16 @@ jobs:
           corpus_schema = json.loads(
               (rules / "qindun-rule-corpus-v1.schema.json").read_text(encoding="utf-8")
           )
-          validate(
-              json.loads((rules / "rules-2026.09.2.json").read_text(encoding="utf-8")),
-              bundle_schema,
+          rule_index = json.loads((rules / "current.json").read_text(encoding="utf-8"))
+          current_bundle = json.loads(
+              (rules / rule_index["current"]).read_text(encoding="utf-8")
           )
+          validate(current_bundle, bundle_schema)
           validate(
-              json.loads((rules / "rule-corpus-2026.09.2.json").read_text(encoding="utf-8")),
+              json.loads(
+                  (rules / current_bundle["evidence_policy"]["rule_test_corpus"])
+                  .read_text(encoding="utf-8")
+              ),
               corpus_schema,
           )
           validate(

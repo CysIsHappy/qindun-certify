@@ -221,12 +221,15 @@ class QindunIntegrationTest(unittest.TestCase):
         corpus_schema = json.loads(
             (ROOT / "rules/qindun-rule-corpus-v1.schema.json").read_text(encoding="utf-8")
         )
-        jsonschema.Draft202012Validator(rule_schema).validate(
-            json.loads((ROOT / "rules/rules-2026.09.2.json").read_text(encoding="utf-8"))
-        )
-        corpus = json.loads((ROOT / "rules/rule-corpus-2026.09.2.json").read_text(encoding="utf-8"))
+        current_rules = json.loads((ROOT / "rules/current.json").read_text(encoding="utf-8"))[
+            "current"
+        ]
+        bundle = json.loads((ROOT / "rules" / current_rules).read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator(rule_schema).validate(bundle)
+        corpus_name = bundle["evidence_policy"]["rule_test_corpus"]
+        corpus = json.loads((ROOT / "rules" / corpus_name).read_text(encoding="utf-8"))
         jsonschema.Draft202012Validator(corpus_schema).validate(corpus)
-        self.assertEqual(len(corpus["cases"]), 43)
+        self.assertEqual(len(corpus["cases"]), 44)
         for case in corpus["cases"]:
             self.assertGreaterEqual(len(case["positive"]), 2)
             self.assertEqual(len(case["positive"]), len(set(case["positive"])))

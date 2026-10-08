@@ -20,9 +20,9 @@
 
 ```bash
 python3 /可信位置/qindun_release_verify.py \
-  ./qindun-certify-0.7.4.zip \
-  --manifest ./qindun-certify-0.7.4.zip.manifest.json \
-  --signature ./qindun-certify-0.7.4.zip.manifest.sig.json \
+  ./qindun-certify-0.7.7.zip \
+  --manifest ./qindun-certify-0.7.7.zip.manifest.json \
+  --signature ./qindun-certify-0.7.7.zip.manifest.sig.json \
   --public-key-file /只读可信位置/qindun-release-public-key \
   --extract-to ./qindun-verified
 ```
@@ -36,10 +36,10 @@ python3 /可信位置/qindun_release_verify.py \
 ```bash
 python3 ./qindun-verified/qindun-certify/scripts/install.py \
   --platform codex \
-  --release-manifest ./qindun-certify-0.7.4.zip.manifest.json \
-  --release-signature ./qindun-certify-0.7.4.zip.manifest.sig.json \
+  --release-manifest ./qindun-certify-0.7.7.zip.manifest.json \
+  --release-signature ./qindun-certify-0.7.7.zip.manifest.sig.json \
   --release-public-key-file /只读可信位置/qindun-release-public-key \
-  --release-archive ./qindun-certify-0.7.4.zip
+  --release-archive ./qindun-certify-0.7.7.zip
 ```
 
 正式安装缺少其中任一材料都会失败。只提供校验和、只提供清单、信任清单自带

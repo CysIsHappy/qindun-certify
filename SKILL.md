@@ -3,7 +3,7 @@ name: qindun-certify
 description: 对本地或公开 GitHub 上的 Skill、Agent、工作流和作品包执行秦盾安全预检，生成非官方报告，验证秦盾平台签名报告，也可验证或安装秦盾签名发布包。
 license: MIT
 metadata:
-  version: "0.7.4"
+  version: "0.7.7"
 ---
 
 # 秦盾本地安全预检

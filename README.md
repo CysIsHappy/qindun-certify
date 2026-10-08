@@ -1,6 +1,6 @@
 # 秦盾本地安全预检
 
-> **v0.7.4** — 面向 Skill（技能）、Agent（智能体）和工作流作品包的
+> **v0.7.7** — 面向 Skill（技能）、Agent（智能体）和工作流作品包的
 > 本地安全预检工具，支持确定性扫描、依赖清单、候选智能复核、持续集成报告和官方报告验签。
 
 秦盾本地安全预检会读取本地目录、ZIP（压缩包）或用户指定的公开 GitHub 仓库，检查包结构、危险行为、
@@ -480,7 +480,7 @@ rules/current.json
 它指向当前启用的版本化规则包：
 
 ```text
-rules/rules-2026.08.6.json
+rules/rules-2026.10.5.json
 ```
 
 规则包同时包含：
@@ -506,7 +506,7 @@ rules/rules-2026.08.6.json
 4. 人工智能可以提出候选规则，但不能直接启用；
 5. 修改扫描行为时必须更新对应版本和回归测试。
 
-上述要求不是文档约定：`rule-corpus-2026.09.2.json` 为每条启用规则保存至少
+上述要求不是文档约定：`rule-corpus-2026.10.5.json` 为每条启用规则保存至少
 两个正例和两个反例，规则加载时会校验数量、内容去重、规则编号、实际命中结果
 和摘要；规则包与语料还分别受 JSON Schema（JSON 格式约束）限制。任何一条
 规则语料不足、重复、正例未命中或反例误命中，扫描器都会拒绝启动。
@@ -522,7 +522,7 @@ rules/rules-2026.08.6.json
 ```yaml
 - uses: actions/checkout@v4
 - id: qindun
-  uses: CysIsHappy/qindun-certify@v0.7.4
+  uses: CysIsHappy/qindun-certify@v0.7.7
   with:
     target: ./skills/my-skill
     osv: "true"
@@ -587,9 +587,9 @@ qindun-certify/
 │   └── semantic-review.md           # 智能候选复核协议
 ├── rules/
 │   ├── current.json                 # 当前规则包索引
-│   ├── rules-2026.08.5.json         # 上一版规则快照
-│   ├── rules-2026.08.6.json         # 当前规则、证据与共同等级策略
-│   ├── rule-corpus-2026.08.6.json   # 每条规则至少两组正反例语料
+│   ├── rules-2026.10.3.json         # 上一版规则快照（仅源码仓库）
+│   ├── rules-2026.10.5.json         # 当前规则、证据与共同等级策略
+│   ├── rule-corpus-2026.10.5.json   # 每条规则至少两组正反例语料
 │   ├── external-taxonomy-map-v1.json # T01-T09 到秦盾维度的映射
 │   └── qindun-rule-*.schema.json    # 规则包与语料格式约束
 ├── scripts/
@@ -630,9 +630,9 @@ python3 scripts/package_release.py \
 
 命令会生成：
 
-- `qindun-certify-0.7.4.zip`；
-- `qindun-certify-0.7.4.zip.sha256`；
-- `qindun-certify-0.7.4.zip.manifest.json`（逐文件发布清单）。
+- `qindun-certify-0.7.7.zip`；
+- `qindun-certify-0.7.7.zip.sha256`；
+- `qindun-certify-0.7.7.zip.manifest.json`（逐文件发布清单）。
 
 正式发布不接受该未签名模式，必须提供经批准的 Ed25519（现代数字签名算法）
 发布私钥、密钥编号和来源提交号，并生成发布清单签名。仓库不会内置或自动生成
@@ -649,7 +649,9 @@ python3 -m unittest discover -s tests -v
 ```
 
 还应使用技能校验器检查 `SKILL.md` 元数据，并让生成的运行版 ZIP 扫描自身；
-当前版本的预期自检结果为 B。
+当前版本的预期自检结果为 B。与正在运行的扫描器及规则内容完全一致的文件
+属于工具自身的信任边界，不代表自检独立证明了工具安全；详见
+[SECURITY.md](SECURITY.md#扫描器自身的信任边界)。
 
 ## 新扫描器发布后的平台重新认证
 

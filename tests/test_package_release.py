@@ -34,7 +34,7 @@ SCANNER = _load("qindun_certify_release_test", ROOT / "scripts" / "qindun_certif
 
 
 class QindunReleasePackageTest(unittest.TestCase):
-    def test_release_is_reproducible_installable_and_self_clean(self) -> None:
+    def test_release_is_reproducible_installable_and_reports_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             first_archive, first_checksum = PACKAGER.build(Path(first))
             second_archive, second_checksum = PACKAGER.build(Path(second))
@@ -58,8 +58,17 @@ class QindunReleasePackageTest(unittest.TestCase):
         self.assertIn("qindun-certify/agents/openai.yaml", names)
         self.assertIn("qindun-certify/rules/current.json", names)
         self.assertNotIn("qindun-certify/rules/rules-2026.08.3.json", names)
-        self.assertIn("qindun-certify/rules/rules-2026.09.2.json", names)
-        self.assertIn("qindun-certify/rules/rule-corpus-2026.09.2.json", names)
+        self.assertNotIn("qindun-certify/rules/rules-2026.09.2.json", names)
+        self.assertNotIn("qindun-certify/rules/rule-corpus-2026.09.2.json", names)
+        current_bundle = json.loads(
+            (ROOT / "rules/current.json").read_text(encoding="utf-8")
+        )["current"]
+        current_payload = json.loads(
+            (ROOT / "rules" / current_bundle).read_text(encoding="utf-8")
+        )
+        current_corpus = current_payload["evidence_policy"]["rule_test_corpus"]
+        self.assertIn(f"qindun-certify/rules/{current_bundle}", names)
+        self.assertIn(f"qindun-certify/rules/{current_corpus}", names)
         self.assertIn("qindun-certify/rules/qindun-rule-bundle-v1.schema.json", names)
         self.assertIn("qindun-certify/rules/qindun-rule-corpus-v1.schema.json", names)
         self.assertIn("qindun-certify/scripts/qindun.py", names)
@@ -81,15 +90,21 @@ class QindunReleasePackageTest(unittest.TestCase):
         self.assertNotIn("qindun-certify/tests/test_qindun_certify.py", names)
         self.assertNotIn("qindun-certify/scripts/package_release.py", names)
         self.assertNotIn("qindun-certify/bootstrap/qindun_release_verify.py", names)
+        # Exact copies of the running analyzer are inside the existing tool
+        # trust boundary. Target names and manifests cannot grant that trust.
         self.assertEqual(report["scan_status"], "completed")
         self.assertEqual(report["local_grade_preview"], "B")
+        self.assertTrue(report["coverage"]["complete"])
+        self.assertEqual(report["coverage"]["incomplete_reasons"], [])
+        self.assertEqual(report["coverage"]["statistics"]["trusted_internal_files"], 5)
+        self.assertTrue(all(item["disposition"] == "candidate" for item in report["findings"]))
 
     def test_release_versions_stay_in_sync(self) -> None:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
 
-        self.assertEqual(version, "0.7.4")
-        self.assertIn('version: "0.7.4"', skill)
+        self.assertEqual(version, "0.7.7")
+        self.assertIn(f'version: "{version}"', skill)
 
     def test_release_rejects_symlinked_content(self) -> None:
         original_root = PACKAGER.ROOT

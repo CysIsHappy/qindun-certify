@@ -21,6 +21,20 @@
     "instructions": {"type": "string", "minLength": 1},
     "candidate_count": {"type": "integer", "minimum": 0},
     "included_count": {"type": "integer", "minimum": 0, "maximum": 50},
+    "omitted_count": {"type": "integer", "minimum": 0},
+    "unavailable_contexts": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["finding_index", "reason"],
+        "properties": {
+          "finding_index": {"type": "integer", "minimum": 0},
+          "reason": {"enum": ["missing_line", "invalid_line", "source_unavailable", "line_out_of_range"]}
+        }
+      }
+    },
     "truncated": {"type": "boolean"},
     "requests": {
       "type": "array",

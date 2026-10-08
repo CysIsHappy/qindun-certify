@@ -275,10 +275,13 @@ class QindunExternalEvidenceTest(unittest.TestCase):
 
     def test_builtin_corpus_benchmark_covers_all_rules(self) -> None:
         report = BENCHMARK.corpus_report()
+        expected_rule_count = len(
+            json.loads(BENCHMARK.engine.RULE_CORPUS_FILE.read_text(encoding="utf-8"))["cases"]
+        )
 
         self.assertEqual(report["format"], "qindun-benchmark/v1")
-        self.assertEqual(report["metrics"]["passed_rules"], 43)
-        self.assertEqual(report["metrics"]["total_rules"], 43)
+        self.assertEqual(report["metrics"]["passed_rules"], expected_rule_count)
+        self.assertEqual(report["metrics"]["total_rules"], expected_rule_count)
         self.assertEqual(report["metrics"]["false_positive"], 0)
         self.assertEqual(report["metrics"]["false_negative"], 0)
 

@@ -35,7 +35,58 @@ from qindun_dependencies import (  # noqa: E402 - 支持脚本在任意工作目
     extract,
     query_osv,
 )
-from qindun_source_context import actionable_secret_match, interpreter_file, required_frontmatter  # noqa: E402
+import qindun_source_context as source_context  # noqa: E402
+from qindun_source_context import (  # noqa: E402
+    actionable_secret_match,
+    command_recommendation_prohibition,
+    explicit_operation_prohibition,
+    success_reporting_prohibition,
+    documented_query_auth_overrides,
+    installed_skill_relative_path,
+    interpreter_file,
+    markdown_document_reference_lines,
+    powershell_direct_execution_pipeline,
+    python_call_argument_nodes,
+    python_copy_flow_environment,
+    python_copy_flow_value,
+    python_expand_literal_arguments,
+    python_flow_environment_key,
+    python_flow_value,
+    python_flow_selection,
+    python_flow_taints,
+    python_flow_snapshot,
+    python_restore_flow_snapshot,
+    python_join_flow_snapshot,
+    python_merge_fresh_flow_values,
+    python_append_flow_child,
+    python_update_flow_fields,
+    PythonFlowValue,
+    python_global_bindings,
+    python_literal_mapping_selection,
+    python_local_bindings,
+    python_merge_flow_bindings,
+    python_mutable_flow_value,
+    python_mutated_names,
+    python_mutating_method_receiver,
+    python_query_url_values,
+    python_http_url_prefix,
+    required_frontmatter,
+    shell_assignment_value,
+    shell_assignment_variables,
+    shell_compound_requests,
+    shell_curl_status_only,
+    shell_curl_response_only,
+    shell_substitution_command,
+    shell_fixed_json_pipeline,
+    shell_update_safe_date_interpolations,
+    shell_header_auth_only,
+    shell_literal_assignment,
+    shell_logical_lines,
+    shell_python_program_variables,
+    shell_requirement_lines,
+    shell_request_command,
+    shell_request_variables,
+)
 
 
 MAX_FILES = 2_000
@@ -130,8 +181,9 @@ PROCESS_PATTERN = re.compile(
     r"\b(?:subprocess\.|os\.system\(|child_process|execFile\(|spawn\(|Runtime\.getRuntime\()"
 )
 SECRET_SCRUB_PATTERN = re.compile(
-    r"(?i)(\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|password)"
-    r"\s*[:=]\s*[\"']?)([A-Za-z0-9_./+=-]{8,})([\"']?)"
+    r"(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|"
+    r"client[_-]?secret|secret[_-]?key|app[_-]?key|password)"
+    r"[\"']?\s*[:=]\s*[\"']?)([A-Za-z0-9_./+=-]{8,})([\"']?)"
 )
 KNOWN_SECRET_PATTERN = re.compile(
     r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|"
@@ -275,6 +327,13 @@ RULE_REMEDIATIONS = {
     "QINDUN.LOCAL.D3.UNSUPPORTED_ENTRYPOINT": (
         "为入口使用受支持的脚本格式和明确解释器，或移除无法静态分析的执行入口。"
     ),
+    "QINDUN.LOCAL.D3.STRUCTURE_PARSE_FAILURE": (
+        "根据覆盖不足的原因核对文件格式与语法；对超出分析器能力的调用和数据流补充人工复核或适用的隔离检查。"
+        "此项表示检查未完成；实际风险以独立行为证据为准。"
+    ),
+}
+RULE_HELP_URIS = {
+    "QINDUN.LOCAL.D3.STRUCTURE_PARSE_FAILURE": "https://github.com/CysIsHappy/qindun-certify",
 }
 DIMENSION_HELP_URIS = {
     "D2": "https://cwe.mitre.org/data/definitions/22.html",
@@ -321,9 +380,9 @@ class Finding:
             object.__setattr__(
                 self,
                 "help_uri",
-                DIMENSION_HELP_URIS.get(
-                    self.dimension,
-                    "https://cwe.mitre.org/",
+                RULE_HELP_URIS.get(
+                    self.rule_id,
+                    DIMENSION_HELP_URIS.get(self.dimension, "https://cwe.mitre.org/"),
                 ),
             )
 
@@ -621,6 +680,8 @@ def _quoted_attack_warning(text: str, start: int, end: int) -> bool:
 def text_match_overrides(
     rule_id: str, text: str, start: int, end: int, path: str
 ) -> dict[str, str]:
+    if rule_id == "QINDUN.D6.MCP_TOKEN_QUERY":
+        return documented_query_auth_overrides(text, start, path)
     if (
         rule_id == "QINDUN.D7.SAFETY_DISABLE"
         and re.match(r"\s+bounds\b", text[end:], re.I)
@@ -638,8 +699,33 @@ def _actionable_text_match(
     rule_id: str, text: str, start: int, end: int | None = None, path: str = ""
 ) -> bool:
     end = end if end is not None else start
-    if rule_id in {"QINDUN.D5.GENERIC_SECRET", "QINDUN.D5.DATABASE_CONNECTION"}:
+    if rule_id == "QINDUN.D7.SILENT_OPERATION" and (
+        command_recommendation_prohibition(text, start, end, path)
+        or explicit_operation_prohibition(text, start)
+        or success_reporting_prohibition(text, start, end, path)
+    ):
+        return False
+    if rule_id == "QINDUN.D3.CREDENTIAL_EXFILTRATION":
+        prefix = text[max(0, start - 96) : start]
+        if re.search(r"\b(?:do\s+not|don't|never|avoid|must\s+not)\b[^.!?;\n]{0,64}$", prefix, re.I):
+            return False
+    if rule_id in {
+        "QINDUN.D5.GENERIC_SECRET",
+        "QINDUN.D5.DATABASE_CONNECTION",
+        "QINDUN.D5.PRIVATE_KEY",
+    }:
         return actionable_secret_match(text, start, end, path)
+    if rule_id == "QINDUN.D6.PLAIN_IP_HTTP_TARGET":
+        # Parse the complete endpoint, not the rule's IP-shaped prefix: a
+        # lookalike hostname or userinfo must not inherit loopback treatment.
+        endpoint = re.match(r"https?://[^\s<>\"'`]+", text[start:], re.I)
+        if endpoint is not None:
+            try:
+                host = urlsplit(endpoint[0]).hostname
+                if host and ipaddress.ip_address(host).is_loopback:
+                    return False
+            except ValueError:
+                pass
     if rule_id == "QINDUN.D3.CONDITIONAL_DANGEROUS_EXECUTION":
         return _conditional_text_match(text, start, end, path)
     if rule_id == "QINDUN.D7.PROMPT_OVERRIDE_INSTRUCTION" and _quoted_attack_warning(
@@ -660,9 +746,19 @@ def _actionable_text_match(
     )
 
 
+def _trusted_source_context_digest() -> str:
+    """Bind the already loaded analyzer to its installed sibling, never the target."""
+    expected = SCRIPT_DIR / "qindun_source_context.py"
+    origin = getattr(source_context, "__file__", None)
+    if not origin or expected.is_symlink() or Path(origin).resolve(strict=True) != expected:
+        raise ValueError("秦盾分析模块来源与已安装扫描器不一致")
+    return hashlib.sha256(expected.read_bytes()).hexdigest()
+
+
 SCANNER_VERSION = VERSION_FILE.read_text(encoding="utf-8").strip()
 TRUSTED_INTERNAL_DIGESTS = {
     hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    _trusted_source_context_digest(),
     hashlib.sha256(RULE_INDEX_FILE.read_bytes()).hexdigest(),
     hashlib.sha256(RULE_BUNDLE_FILE.read_bytes()).hexdigest(),
     hashlib.sha256(RULE_CORPUS_FILE.read_bytes()).hexdigest(),
@@ -766,7 +862,11 @@ def _instruction_entrypoint_roles(path: str, text: str) -> dict[str, str]:
     roles: dict[str, str] = {}
     parent = PurePosixPath(path).parent
     in_fence = False
-    for raw_line in text.splitlines():
+    requirement_lines = shell_requirement_lines(text)
+    reference_lines = markdown_document_reference_lines(text)
+    for line_index, raw_line in enumerate(text.splitlines()):
+        if line_index in requirement_lines:
+            continue
         if re.match(r"^\s*(?:`{3,}|~{3,})", raw_line):
             in_fence = not in_fence
             continue
@@ -777,8 +877,10 @@ def _instruction_entrypoint_roles(path: str, text: str) -> dict[str, str]:
             if not line:
                 continue
             try:
+                raw_tokens = shlex.split(line, comments=True, posix=True)
                 tokens = [
-                    token.strip("`.,:：") for token in shlex.split(line, comments=True, posix=True)
+                    token.strip("`").rstrip(".,:：")
+                    for token in raw_tokens
                 ]
             except ValueError:
                 continue
@@ -786,7 +888,9 @@ def _instruction_entrypoint_roles(path: str, text: str) -> dict[str, str]:
                 (
                     index
                     for index, token in enumerate(tokens)
-                    if PurePosixPath(token).name.casefold() in INTERPRETER_ROLES
+                    # Colons mark prose labels, while command names retain their spelling.
+                    if PurePosixPath(raw_tokens[index].strip("`").rstrip(".,")).name.casefold()
+                    in INTERPRETER_ROLES
                     and (
                         index == 0
                         or tokens[index - 1].casefold()
@@ -812,11 +916,20 @@ def _instruction_entrypoint_roles(path: str, text: str) -> dict[str, str]:
                 None,
             )
             if interpreter_index is None:
+                # A lone inline path needs its surrounding prose to establish execution.
+                if segment != raw_line and len(tokens) == 1:
+                    continue
                 direct = next(
                     (
                         token
-                        for token in tokens
+                        for index, token in enumerate(tokens)
                         if token.startswith("./")
+                        and (index > 0 or line_index not in reference_lines)
+                        and (
+                            index == 0
+                            or tokens[index - 1].casefold()
+                            in {"env", "sudo", "run", "execute", "launch", "start", "运行", "执行"}
+                        )
                         and "://" not in token
                         and re.search(r"[<>{}\[\]$*?]", token) is None
                     ),
@@ -854,6 +967,7 @@ def _instruction_entrypoint_roles(path: str, text: str) -> dict[str, str]:
                     not token.startswith("-") for token in tokens[tokens.index(candidate) + 1 :]
                 ):
                     continue
+            candidate = installed_skill_relative_path(candidate, path, text)
             resolved = (parent / candidate.removeprefix("./")).as_posix()
             if _safe_relative(resolved):
                 _merge_executable_role(roles, resolved, role)
@@ -1477,14 +1591,20 @@ def _static_ast_value(node: ast.AST) -> object:
         except (TypeError, ValueError, OverflowError):
             return _UNKNOWN_STATIC_VALUE
     if isinstance(node, ast.BoolOp):
-        values = [_static_ast_value(item) for item in node.values]
-        if any(item is _UNKNOWN_STATIC_VALUE for item in values):
-            return _UNKNOWN_STATIC_VALUE
-        return (
-            all(bool(item) for item in values)
-            if isinstance(node.op, ast.And)
-            else any(bool(item) for item in values)
-        )
+        value = _UNKNOWN_STATIC_VALUE
+        for item in node.values:
+            value = _static_ast_value(item)
+            if value is _UNKNOWN_STATIC_VALUE:
+                return value
+            if (isinstance(node.op, ast.And) and not bool(value)
+                    or isinstance(node.op, ast.Or) and bool(value)):
+                break
+        return value
+    if isinstance(node, ast.IfExp):
+        test = _static_ast_value(node.test)
+        if test is not _UNKNOWN_STATIC_VALUE:
+            return _static_ast_value(node.body if bool(test) else node.orelse)
+        return _UNKNOWN_STATIC_VALUE
     if isinstance(node, ast.Compare):
         left = _static_ast_value(node.left)
         comparators = [_static_ast_value(item) for item in node.comparators]
@@ -1537,6 +1657,8 @@ def _resolve_python_alias(name: str, aliases: dict[str, str]) -> str:
     for _depth in range(32):
         if not current:
             break
+        if current.startswith("class:") and current in aliases:
+            return aliases[current]
         head, separator, tail = current.partition(".")
         if head in seen_heads:
             break
@@ -1620,6 +1742,19 @@ class _PythonCallCollector(ast.NodeVisitor):
             if callable_name:
                 self.aliases[node.target.id] = callable_name
             self.visit(node.value)
+
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:  # noqa: N802 - ast API
+        for value in node.values:
+            self.visit(value)
+            truth = _static_truth_value(value)
+            if (isinstance(node.op, ast.And) and truth is False
+                    or isinstance(node.op, ast.Or) and truth is True):
+                break
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:  # noqa: N802 - ast API
+        self.visit_If(ast.If(test=node.test, body=[ast.Expr(value=node.body)],
+                             orelse=[ast.Expr(value=node.orelse)]))
 
     def visit_If(self, node: ast.If) -> None:  # noqa: N802 - ast API
         truth = _static_truth_value(node.test)
@@ -1922,6 +2057,11 @@ def _python_taint_role(taints: set[str], source: str, target: str) -> set[str]:
     """Preserve purpose on both actual secrets and symbolic function parameters."""
     if "credential_path" in taints:
         return taints
+    if target in {"auth_", "auth_field_"} and (
+        "sequence_value" in taints or "mapping_value" in taints and source == ""
+    ):
+        # A whole collection is payload, including when bound through a helper summary.
+        target = ""
     return {
         target + value[len(source) :]
         if value == source + "credential" or value.startswith(source + "parameter:")
@@ -1932,16 +2072,23 @@ def _python_taint_role(taints: set[str], source: str, target: str) -> set[str]:
 
 def _python_bound_taints(node: ast.Call, arguments: list[set[str]], summary: set[str]) -> set[str]:
     bindings = {
-        int(v.split(":", 2)[1]): v.split(":", 2)[2] for v in summary if v.startswith("binding:")
+        int(v.split(":", 3)[1]): v.split(":", 3)[2:] for v in summary if v.startswith("binding:")
     }
-    actual = {index: value for index, value in enumerate(arguments[: len(node.args)])}
+    actual = {
+        index: value
+        for index, value in enumerate(arguments[: len(node.args)])
+        if index in bindings and bindings[index][0] in {"posonly", "positional"}
+    }
     for keyword, value in zip(node.keywords, arguments[len(node.args) :]):
-        for index, name in bindings.items():
-            if keyword.arg == name:
+        for index, (kind, name) in bindings.items():
+            if keyword.arg == name and kind != "posonly":
                 actual[index] = value
     result = set()
     for value in summary:
-        parameter = re.fullmatch(r"(auth_field_|auth_)?parameter:(\d+)", value)
+        parameter = re.fullmatch(
+            r"(auth_field_|auth_|response_auth_|request_auth_|response_data_|request_data_)?parameter:(\d+)",
+            value,
+        )
         if parameter:
             result.update(
                 _python_taint_role(actual.get(int(parameter[2]), set()), "", parameter[1] or "")
@@ -1963,7 +2110,8 @@ def _python_mapping_item_taints(key: ast.AST | None, taints: set[str]) -> set[st
     if (
         isinstance(key, ast.Constant)
         and isinstance(key.value, str)
-        and key.value.casefold() in {"authorization", "proxy-authorization", "x-api-key", "api-key"}
+        and key.value.casefold()
+        in {"authorization", "proxy-authorization", "x-api-key", "api-key", "x-goog-api-key"}
         and "credential_path" not in taints
     ):
         return _python_taint_role(taints, "", "auth_field_")
@@ -2021,13 +2169,65 @@ def _python_oauth_refresh_fields(
     return True
 
 
+def _python_query_auth_fields(node: ast.AST, url: ast.AST | None) -> set[str]:
+    """Recognize explicit query-field purpose, not endpoint trust or permission."""
+    if (
+        not isinstance(node, ast.Dict)
+        or not isinstance(url, ast.Constant)
+        or not isinstance(url.value, str)
+    ):
+        return set()
+    try:
+        target = urlsplit(url.value)
+        if (
+            target.scheme != "https"
+            or not target.hostname
+            or target.username is not None
+            or target.password is not None
+            or target.port not in {None, 443}
+            or target.query
+            or target.fragment
+            or re.search(r"[\s{}\\]", url.value)
+        ):
+            return set()
+    except ValueError:
+        return set()
+    if any(
+        not isinstance(key, ast.Constant) or not isinstance(key.value, str) for key in node.keys
+    ):
+        return set()
+    names = [key.value for key in node.keys]
+    if len(names) != len(set(names)):
+        return set()
+    return set(names) & {"key", "api_key", "apikey", "access_token", "token"}
+
+
+def _python_http_url_taints(node, environment, aliases, function_returns):
+    """Classify only the HTTP transport prefix; preserve raw URL provenance elsewhere."""
+    prefix = python_http_url_prefix(node, environment)
+    effective = prefix if prefix is not None else node
+    values = python_query_url_values(effective, environment)
+    if values and all(isinstance(value, ast.Name) for value in values):
+        taints = set()
+        for value in values:
+            item = _python_expr_taints(value, environment, aliases, function_returns)
+            item = _python_taint_role(item, "auth_field_", "")
+            taints.update(_python_taint_role(item, "", "auth_"))
+        return taints
+    if prefix is not None:
+        return _python_expr_taints(prefix, environment, aliases, function_returns)
+    return None
+
+
 def _python_call_argument_taints(
     node: ast.Call,
     environment: dict[str, set[str]],
     aliases: dict[str, str],
     function_returns: dict[str, set[str]],
+    *,
+    query_auth: bool = True,
 ) -> list[set[str]]:
-    """Keep authentication headers reviewable without treating them as proven theft."""
+    """Keep explicit authentication fields reviewable without treating them as proven theft."""
     name = _python_callable_name(node.func, aliases).casefold()
     owner, _, method = name.rpartition(".")
     http_call = (
@@ -2038,6 +2238,10 @@ def _python_call_argument_taints(
     arguments = []
     keywords = {k.arg: k.value for k in node.keywords}
     url = node.args[0] if node.args else keywords.get("url")
+    if name == "urllib.request.request" and not node.args:
+        url = keywords.get("full_url", url)
+    if http_call and method == "request" and name != "urllib.request.request":
+        url = node.args[1] if len(node.args) > 1 else keywords.get("url")
     method_value = keywords.get("method")
     oauth_request = (
         name == "urllib.request.request"
@@ -2046,18 +2250,48 @@ def _python_call_argument_taints(
         and isinstance(method_value, ast.Constant)
         and method_value.value == "POST"
     )
+    url_taints = (
+        getattr(python_flow_selection(url, environment), "http_url_taints", None)
+        if query_auth and http_call else None
+    )
+    if url_taints is None and query_auth and http_call:
+        url_taints = _python_http_url_taints(url, environment, aliases, function_returns)
     for value in node.args:
         taints = _python_expr_taints(value, environment, aliases, function_returns)
         taints = _python_taint_role(taints, "auth_field_", "")
+        if value is url and url_taints is not None:
+            taints = url_taints
         arguments.append(taints)
     for keyword in node.keywords:
         taints = _python_expr_taints(keyword.value, environment, aliases, function_returns)
+        if keyword.value is url and url_taints is not None:
+            taints = url_taints
         purpose = "auth_" if http_call and keyword.arg == "headers" else ""
         taints = _python_taint_role(taints, "auth_field_", purpose)
         if keyword.arg in {"data", "json", "params"}:
             taints = _python_taint_role(taints, "auth_", "")
+        if query_auth and http_call and keyword.arg == "params":
+            auth_fields = _python_query_auth_fields(keyword.value, url)
+            if auth_fields:
+                taints = set()
+                for key, value in zip(keyword.value.keys, keyword.value.values):
+                    item = _python_expr_taints(value, environment, aliases, function_returns)
+                    item = _python_taint_role(item, "auth_field_", "")
+                    scalar = (
+                        isinstance(value, ast.Name)
+                        or isinstance(value, ast.Call)
+                        and _python_callable_name(value.func, aliases)
+                        in {"os.getenv", "os.environ.get"}
+                        or isinstance(value, ast.Subscript)
+                        and _canonical_python_name(_ast_qualified_name(value.value), aliases)
+                        == "os.environ"
+                    )
+                    if key.value in auth_fields and scalar and "sequence_value" not in item:
+                        item = _python_taint_role(item, "", "auth_")
+                    taints.update(item)
         if oauth_request and keyword.arg == "data" and "oauth_refresh_body" in taints:
-            taints = _python_taint_role(taints, "", "auth_") | {"oauth_token_request"}
+            # This verified protocol body authenticates multiple named scalar fields.
+            taints = _python_taint_role(taints - {"mapping_value"}, "", "auth_") | {"oauth_token_request"}
         arguments.append(taints)
     if (
         method in {"add_header", "add_unredirected_header"}
@@ -2080,10 +2314,26 @@ def _python_expr_taints(
         return set()
     aliases = aliases or {}
     function_returns = function_returns or {}
+    reference = python_flow_selection(node, environment)
+    if isinstance(reference, set):
+        return python_flow_taints(reference, _python_mapping_item_taints)
+    if isinstance(reference, ast.AST):
+        return _python_expr_taints(reference, environment, aliases, function_returns)
+    selected = python_literal_mapping_selection(node)
+    if selected is not None:
+        return _python_expr_taints(selected, environment, aliases, function_returns)
+    if isinstance(node, ast.Call) and python_mutating_method_receiver(node, environment) is not None:
+        # These proven built-in mutators return None, not the inserted payload.
+        return set()
     if isinstance(node, ast.Name):
         return set(environment.get(node.id, set()))
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        taints = {"sequence_value"}
+        for item in node.elts:
+            taints.update(_python_expr_taints(item, environment, aliases, function_returns))
+        return taints
     if isinstance(node, ast.Dict):
-        taints: set[str] = set()
+        taints: set[str] = {"mapping_value"}
         for key, value in zip(node.keys, node.values):
             item = _python_expr_taints(value, environment, aliases, function_returns)
             taints.update(item if key is None else _python_mapping_item_taints(key, item))
@@ -2134,6 +2384,10 @@ def _python_expr_taints(
             taints.update(
                 _python_expr_taints(node.func.value, environment, aliases, function_returns)
             )
+            # Response body data is distinct from arguments sent in the original request.
+            taints = {v for v in taints if not v.startswith(("response_auth_", "response_data_"))}
+            if node.func.attr in {"read", "aread"}:
+                taints = _python_taint_role(taints, "request_data_", "")
             if (
                 "token_response" in taints
                 and node.func.attr == "get"
@@ -2143,9 +2397,13 @@ def _python_expr_taints(
             ):
                 taints -= {"credential", "token_response"}
         for argument_taints in _python_call_argument_taints(
-            node, environment, aliases, function_returns
+            node, environment, aliases, function_returns,
+            query_auth=name == "urllib.request.request",
         ):
             taints.update(argument_taints)
+        if name == "vars" and len(node.args) == 1:
+            for role in ("response_auth_", "response_data_", "request_auth_", "request_data_"):
+                taints = _python_taint_role(taints, role, "")
         if name in {"os.getenv", "os.environ.get"}:
             if any(_sensitive_env_name(value) for value in _ast_string_values(node)):
                 taints.add("credential")
@@ -2162,14 +2420,24 @@ def _python_expr_taints(
         if _is_python_http_download(name):
             taints.add("download")
         if _is_python_http_sink(name):
-            taints.add("network_sink")
-            # A service response is not a copy of the caller's authentication header.
+            # An HTTP call returns response data, not the callable used to send it.
+            # Preserve outbound metadata without treating it as returned response data.
+            taints = _python_taint_role(taints, "request_data_", "response_data_")
+            taints = _python_taint_role(taints, "", "response_data_")
+            taints = _python_taint_role(taints, "auth_", "response_auth_")
             taints = {v for v in taints if not v.startswith("auth_")}
             if "oauth_token_request" in taints:
                 taints.update({"token_response", "credential"})
                 taints.discard("oauth_refresh_body")
         if name in {"urllib.request.request", "requests.request"}:
             taints.add("network_request")
+        if name == "urllib.request.request":
+            # Query auth remains reviewable, while the URL still contains raw credentials.
+            url = node.args[0] if node.args else next(
+                (item.value for item in node.keywords if item.arg in {"url", "full_url"}), None
+            )
+            raw_url = _python_expr_taints(url, environment, aliases, function_returns)
+            taints.update(_python_taint_role(raw_url, "", "request_data_"))
         if name in {"base64.b64decode", "binascii.a2b_base64", "codecs.decode"}:
             taints.add("decoded")
         if name in HTTP_CLIENT_CONSTRUCTORS:
@@ -2186,11 +2454,12 @@ def _python_expr_taints(
             or _is_python_http_sink(name)
         ):
             taints.discard("oauth_refresh_body")
-        if name in function_returns:
+        summary = function_returns.get(f"call:{id(node)}", function_returns.get(name))
+        if summary is not None:
             return _python_bound_taints(
                 node,
                 _python_call_argument_taints(node, environment, aliases, function_returns),
-                function_returns[name],
+                summary,
             )
         return taints
     if isinstance(node, ast.Attribute):
@@ -2201,6 +2470,32 @@ def _python_expr_taints(
             or (isinstance(node, ast.Attribute) and name in {"send", "sendall", "sendto"})
         ):
             return {"network_sink"}
+        taints = _python_expr_taints(node.value, environment, aliases, function_returns)
+        response_auth = {v for v in taints if v.startswith("response_auth_")}
+        request_auth = {v for v in taints if v.startswith("request_auth_")}
+        response_data = {v for v in taints if v.startswith("response_data_")}
+        request_data = {v for v in taints if v.startswith("request_data_")}
+        if response_auth or request_auth or response_data or request_data:
+            taints -= response_auth | request_auth | response_data | request_data
+            if node.attr == "request":
+                taints.update(_python_taint_role(response_auth, "response_auth_", "request_auth_"))
+                taints.update(_python_taint_role(response_data, "response_data_", "request_data_"))
+            if node.attr == "headers":
+                taints.update(_python_taint_role(request_auth, "request_auth_", ""))
+            if node.attr in {"url", "full_url"}:
+                taints.update(_python_taint_role(response_data, "response_data_", ""))
+                taints.update(_python_taint_role(request_data, "request_data_", ""))
+            if node.attr in {"body", "content"}:
+                taints.update(_python_taint_role(request_data, "request_data_", ""))
+            if node.attr == "__dict__":
+                for values, role in (
+                    (response_auth, "response_auth_"),
+                    (response_data, "response_data_"),
+                    (request_auth, "request_auth_"),
+                    (request_data, "request_data_"),
+                ):
+                    taints.update(_python_taint_role(values, role, ""))
+            return taints
     taints: set[str] = set()
     for child in ast.iter_child_nodes(node):
         taints.update(_python_expr_taints(child, environment, aliases, function_returns))
@@ -2241,7 +2536,28 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
         self.function_returns: dict[str, set[str]] = {}
         self.function_network_parameters: dict[str, set[str]] = {}
         self.current_function: str | None = None
+        self.module_environment: dict[str, set[str]] = {}
+        self.module_aliases: dict[str, str] = {}
+        self.module_functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+        self.static_methods: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+        self.static_function_identities: set[str] = set()
+        self.class_depth = 0
+        self.nested_functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+        self.scope_functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+        self.lexical_frames: dict[str, tuple[dict[str, set[str]], dict[str, str]]] = {}
+        self.current_call_proven = False
+        self.bind_actual_arguments = False
+        self.function_defaults: dict[int, dict[str, set[str]]] = {}
+        self.called_functions: set[int] = set()
+        self.active_functions: set[int] = set()
+        self.function_visits = 0
+        self.function_cache: dict[tuple, tuple[set[str], set[str]]] = {}
+        self.flow_incomplete = False
+        self.has_global_writes = False
+        self.global_names: set[str] = set()
+        self.local_names: set[str] = set()
         self.current_return_taints: set[str] = set()
+        self.current_return_values = []
         self.current_network_parameters: set[str] = set()
         self.reachable_functions = reachable_functions
         self.function_identities = function_identities
@@ -2258,10 +2574,19 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
     def _add(self, rule_id: str, node: ast.AST, *, disposition: str = "confirmed") -> None:
         unproven_reachability = (
             self.current_function is not None
-            and self.current_function not in self.reachable_functions
+            and (
+                self.current_function in self.static_function_identities
+                or self.current_function not in self.reachable_functions
+            )
+            and not self.current_call_proven
         )
         line = int(getattr(node, "lineno", 1))
         key = (rule_id, line)
+        if key in self.seen and disposition == "confirmed" and not unproven_reachability:
+            for index, finding in enumerate(self.findings):
+                if finding.rule_id == rule_id and finding.line == line:
+                    self.findings[index] = replace(finding, disposition="confirmed")
+                    return
         if key not in self.seen:
             self.seen.add(key)
             finding = _confirmed_structural_finding(
@@ -2278,9 +2603,74 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
 
     def _inspect_call(self, node: ast.Call) -> None:
         name = _python_callable_name(node.func, self.aliases).casefold()
+        receiver = python_mutating_method_receiver(node, self.environment)
+        fields = getattr(receiver, "fields", None)
+        graph_mutation = fields is not None
+        if graph_mutation:
+            values = [self._flow_value(arg, self.environment, _python_expr_taints(
+                arg, self.environment, self.aliases, self.function_returns)) for arg in node.args]
+            method = node.func.attr
+            if method in {"append", "add"} and len(values) == 1 and not node.keywords:
+                if not python_append_flow_child(receiver, values[0]):
+                    receiver.update(python_flow_taints(values[0], _python_mapping_item_taints))
+                    self.flow_incomplete = True
+            elif method in {"extend", "update"}:
+                for value in values:
+                    children = getattr(value, "fields", None)
+                    if children is None and method == "extend":
+                        if not python_append_flow_child(receiver, value, unknown_length=True):
+                            self.flow_incomplete = True
+                            receiver.update(python_flow_taints(value, _python_mapping_item_taints))
+                    elif children is None or len(fields) + len(children) > 64:
+                        receiver.update(python_flow_taints(value, _python_mapping_item_taints))
+                        receiver.add("flow_graph_incomplete")
+                        self.flow_incomplete = True
+                    elif method == "update":
+                        if value.kind == "dict":
+                            self.flow_incomplete |= python_update_flow_fields(
+                                receiver, value, _python_mapping_item_taints
+                            )
+                        else:
+                            receiver.update(python_flow_taints(value, _python_mapping_item_taints))
+                            self.flow_incomplete = True
+                    else:
+                        for key, child in children.items():
+                            if value.kind == "dict":
+                                child = self._flow_value(ast.Constant(key), self.environment,
+                                    _python_expr_taints(ast.Constant(key), self.environment,
+                                                       self.aliases, self.function_returns))
+                            python_append_flow_child(receiver, child)
+                if method == "update":
+                    for keyword in node.keywords:
+                        if keyword.arg is None:
+                            self.flow_incomplete = True
+                        else:
+                            child = self._flow_value(
+                                keyword.value, self.environment, _python_expr_taints(
+                                    keyword.value, self.environment, self.aliases, self.function_returns))
+                            if len(fields) >= 64 and keyword.arg not in fields:
+                                receiver.update(python_flow_taints(child, _python_mapping_item_taints))
+                                receiver.add("flow_graph_incomplete")
+                                self.flow_incomplete = True
+                            else:
+                                fields[keyword.arg] = child
+                                receiver.optional_fields.discard(keyword.arg)
+            else:
+                self.flow_incomplete = True
+        if receiver is not None and not graph_mutation and node.func.attr != "update":
+            for argument in node.args:
+                receiver.update(
+                    _python_taint_role(
+                        _python_expr_taints(
+                            argument, self.environment, self.aliases, self.function_returns
+                        ),
+                        "auth_field_", "",
+                    )
+                )
         if (
             isinstance(node.func, ast.Attribute)
             and node.func.attr == "update"
+            and not graph_mutation
             and isinstance(node.func.value, ast.Name)
         ):
             mapping = self.environment.setdefault(node.func.value.id, set())
@@ -2299,6 +2689,8 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
             node, self.environment, self.aliases, self.function_returns
         )
         argument_taints = set().union(*taints_by_argument) if taints_by_argument else set()
+        if "flow_graph_incomplete" in argument_taints:
+            self.flow_incomplete = True
         raw_name = _ast_qualified_name(node.func)
         base_name = raw_name.partition(".")[0]
         network_sink = (
@@ -2317,7 +2709,9 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
                 and "network_client" in self.environment.get(base_name, set())
             )
         )
-        wrapper_parameters = self.function_network_parameters.get(name, set())
+        wrapper_parameters = self.function_network_parameters.get(
+            f"call:{id(node)}", self.function_network_parameters.get(name, set())
+        )
         if wrapper_parameters:
             network_sink = True
             argument_taints = _python_bound_taints(node, taints_by_argument, wrapper_parameters)
@@ -2376,9 +2770,98 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
                 if command and RULES_BY_ID[rule_id].pattern.search(command):
                     self._add(rule_id, node)
 
+    def visit_Module(self, node: ast.Module) -> None:  # noqa: N802 - ast API
+        self.has_global_writes = any(isinstance(item, ast.Global) for item in ast.walk(node))
+        self.bind_actual_arguments = self.has_global_writes or any(
+            "." in identity for identity in self.function_identities.values()
+        )
+        for statement in node.body:
+            self.visit(statement)
+            self.module_environment = self.environment
+            self.module_aliases = self.aliases
+        # Keep evidence from uninvoked functions, with the existing reachability boundary.
+        for function in [*self.module_functions.values(), *self.static_methods.values()]:
+            if id(function) not in self.called_functions:
+                self._analyze_function(function)
+
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802 - ast API
-        self._inspect_call(node)
+        if hasattr(node, "_qindun_flow_value"):
+            del node._qindun_flow_value
         self.generic_visit(node)
+        name = _python_callable_name(node.func, self.aliases).casefold()
+        if self.current_function is not None:
+            self.lexical_frames[self.current_function] = (self.environment, self.aliases)
+        function = (
+            self.module_functions.get(name)
+            or self.nested_functions.get(name)
+            or self.static_methods.get(name)
+        )
+        if function is not None:
+            self._analyze_function(function, node)
+            identity = self.function_identities.get(id(function), function.name.casefold())
+            self.function_returns[f"call:{id(node)}"] = set(
+                self.function_returns.get(identity, set())
+            )
+            self.function_network_parameters[f"call:{id(node)}"] = set(
+                self.function_network_parameters.get(identity, set())
+            )
+        self._inspect_call(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802 - ast API
+        outer_environment, outer_aliases = self.environment, self.aliases
+        if self.current_function is None and self.class_depth == 0:
+            self.module_environment, self.module_aliases = outer_environment, outer_aliases
+        simple_class = (
+            self.current_function is None
+            and self.class_depth == 0
+            and not (node.bases or node.keywords or node.decorator_list)
+        )
+        symbol = f"class:{id(node)}"
+        self.environment = python_copy_flow_environment(outer_environment)
+        self.aliases = dict(outer_aliases)
+        self.class_depth += 1
+        for expression in [
+            *node.bases,
+            *node.decorator_list,
+            *(item.value for item in node.keywords),
+        ]:
+            self.visit(expression)
+        for statement in node.body:
+            static_method = (
+                isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and any(
+                    isinstance(decorator, ast.Name) and decorator.id == "staticmethod"
+                    for decorator in statement.decorator_list
+                )
+            )
+            if (
+                simple_class
+                and static_method
+                and isinstance(statement, ast.FunctionDef)
+                and len(statement.decorator_list) == 1
+                and "staticmethod" not in self.environment
+                and "staticmethod" not in self.aliases
+            ):
+                method_symbol = f"static:{id(statement)}"
+                self._register_function(statement, static_key=method_symbol)
+                self.aliases[statement.name] = method_symbol
+                self.environment[statement.name] = set()
+            else:
+                if static_method:
+                    self.flow_incomplete = True
+                self.visit(statement)
+        # Freeze the class attribute bindings, independently of later variable aliases.
+        members = {
+            f"{symbol}.{statement.name}": self.aliases.get(statement.name, "")
+            for statement in node.body
+            if isinstance(statement, ast.FunctionDef)
+            and f"static:{id(statement)}" in self.static_methods
+        }
+        self.class_depth -= 1
+        self.environment, self.aliases = outer_environment, outer_aliases
+        self.aliases.update(members)
+        self.environment[node.name] = set()
+        self.aliases[node.name] = symbol
 
     def visit_With(self, node: ast.With) -> None:  # noqa: N802 - ast API
         for item in node.items:
@@ -2391,12 +2874,109 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
         for statement in node.body:
             self.visit(statement)
 
+    def _flow_value(self, node, environment, taints):
+        value = python_flow_value(
+            node, environment, taints,
+            lambda child: _python_expr_taints(child, environment, self.aliases, self.function_returns),
+        )
+        transport = _python_http_url_taints(node, environment, self.aliases, self.function_returns)
+        if transport is not None:
+            value.kind = "immutable"
+            value.http_url_taints = frozenset(transport)
+        if "flow_graph_incomplete" in python_flow_taints(value, _python_mapping_item_taints):
+            self.flow_incomplete = True
+        return value
+
+    def _record_subscript_write(self, target: ast.AST, taints: set[str], binding=None) -> None:
+        if isinstance(target, ast.Subscript):
+            parent = python_flow_selection(target.value, self.environment)
+            fields = getattr(parent, "fields", None)
+            if (fields is not None and isinstance(target.slice, ast.Constant)
+                    and type(target.slice.value) in (str, int)
+                    and (parent.kind == "dict" or parent.kind == "list"
+                         and target.slice.value in fields)):
+                key = target.slice.value
+                if len(fields) >= 64 and key not in fields:
+                    self.flow_incomplete = True
+                else:
+                    fields[key] = binding if binding is not None else PythonFlowValue(taints)
+                    parent.optional_fields.discard(key)
+                    return
+            if fields is not None:
+                known_flags = python_flow_taints(parent, _python_mapping_item_taints)
+                self.flow_incomplete |= bool((known_flags | taints) - {"sequence_value", "mapping_value"}) or any(
+                    python_mutable_flow_value(child) for child in fields.values()
+                )
+                parent.update(python_flow_taints(parent, _python_mapping_item_taints))
+                parent.update(taints)
+                parent.fields = None
+            container = target.value
+            while isinstance(container, ast.Subscript):
+                container = container.value
+            if isinstance(container, ast.Name):
+                item = (
+                    _python_mapping_item_taints(target.slice, taints)
+                    if container is target.value
+                    else _python_taint_role(taints, "auth_field_", "")
+                )
+                self.environment.setdefault(container.id, set()).update(item)
+                self.environment[container.id].discard("oauth_refresh_body")
+            else:
+                self.flow_incomplete = True
+
+    def _augmented_sequence(self, previous, expression, operator):
+        if (not isinstance(operator, ast.Add) or getattr(previous, "fields", None) is None
+                or previous.kind not in {"list", "immutable"}):
+            return None
+        result = previous
+        if previous.kind == "immutable":
+            result = PythonFlowValue(previous, kind="immutable", fields=dict(previous.fields))
+            result.optional_fields = set(previous.optional_fields)
+        added = self._flow_value(expression, self.environment, _python_expr_taints(
+            expression, self.environment, self.aliases, self.function_returns))
+        children = getattr(added, "fields", None)
+        if children is None:
+            complete = python_append_flow_child(result, added, unknown_length=True)
+        else:
+            complete = True
+            for key, child in children.items():
+                if added.kind == "dict":
+                    child = self._flow_value(ast.Constant(key), self.environment,
+                        _python_expr_taints(ast.Constant(key), self.environment,
+                                           self.aliases, self.function_returns))
+                complete &= python_append_flow_child(result, child)
+        if not complete:
+            self.flow_incomplete = True
+            result.update(python_flow_taints(added, _python_mapping_item_taints))
+        return result
+
+
     def visit_AugAssign(self, node: ast.AugAssign) -> None:  # noqa: N802 - ast API
+        self.visit(node.target)
         self.visit(node.value)
         taints = _python_expr_taints(
             node.value, self.environment, self.aliases, self.function_returns
         )
+        if isinstance(node.target, ast.Subscript):
+            previous = python_flow_selection(node.target, self.environment)
+            combined = python_flow_taints(previous, _python_mapping_item_taints) if isinstance(previous, set) else set()
+            binding = self._augmented_sequence(previous, node.value, node.op)
+            if binding is None:
+                binding = PythonFlowValue(combined | taints, kind=getattr(previous, "kind", ""))
+            self._record_subscript_write(node.target, combined | taints, binding)
         for name in _assignment_names(node.target):
+            previous = self.environment.get(name, set())
+            sequence = self._augmented_sequence(previous, node.value, node.op)
+            if sequence is not None:
+                self.environment[name] = sequence
+                continue
+            if getattr(previous, "kind", "") == "immutable":
+                # Rebinding an immutable value leaves its earlier aliases unchanged.
+                self.environment[name] = python_flow_taints(previous, _python_mapping_item_taints)
+            elif not getattr(previous, "kind", "") and any(
+                other != name and value is previous for other, value in self.environment.items()
+            ):
+                self.flow_incomplete = True
             self.environment.setdefault(name, set()).update(taints)
             self.environment[name].discard("oauth_refresh_body")
 
@@ -2405,65 +2985,443 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
         taints = _python_expr_taints(
             node.value, self.environment, self.aliases, self.function_returns
         )
+        binding = self._flow_value(node.value, self.environment, taints)
         for target in node.targets:
-            if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
-                self.environment.setdefault(target.value.id, set()).update(
-                    _python_mapping_item_taints(target.slice, taints)
-                )
+            self.visit(target)
+            self._bind_static_attribute(target, node.value)
+            self._record_subscript_write(target, taints, binding)
+            if (
+                isinstance(target, (ast.Tuple, ast.List))
+                and isinstance(node.value, (ast.Tuple, ast.List))
+                and len(target.elts) == len(node.value.elts)
+                and all(isinstance(item, ast.Name) for item in target.elts)
+            ):
+                # Explicit unpacking carries each element's shape, not the outer sequence.
+                values = [
+                    self._flow_value(
+                        item, self.environment,
+                        _python_expr_taints(item, self.environment, self.aliases, self.function_returns),
+                    )
+                    for item in node.value.elts
+                ]
+                callables = [_python_callable_name(item, self.aliases) for item in node.value.elts]
+                for item, value, callable_name in zip(target.elts, values, callables):
+                    self.environment[item.id] = value
+                    if callable_name:
+                        self.aliases[item.id] = callable_name
+                    else:
+                        self.aliases.pop(item.id, None)
+                continue
             for name in _assignment_names(target):
-                self.environment[name] = (
-                    self.environment.setdefault(node.value.id, set())
-                    if isinstance(node.value, ast.Name)
-                    else set(taints)
-                )
+                self.environment[name] = binding
                 callable_name = _python_callable_name(node.value, self.aliases)
                 if callable_name:
                     self.aliases[name] = callable_name
+                else:
+                    self.aliases.pop(name, None)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802 - ast API
-        if node.value is not None:
-            self.visit(node.value)
+        if node.value is None:
+            return
+        self.visit(node.value)
+        self._bind_static_attribute(node.target, node.value)
         taints = _python_expr_taints(
             node.value, self.environment, self.aliases, self.function_returns
         )
+        self.visit(node.target)
+        binding = self._flow_value(node.value, self.environment, taints)
+        self._record_subscript_write(node.target, taints, binding)
         for name in _assignment_names(node.target):
-            self.environment[name] = set(taints)
+            self.environment[name] = binding
             callable_name = _python_callable_name(node.value, self.aliases) if node.value else ""
             if callable_name:
                 self.aliases[name] = callable_name
+            else:
+                self.aliases.pop(name, None)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802 - ast API
+    def _bind_static_attribute(self, target: ast.AST, value: ast.AST | None) -> None:
+        if isinstance(target, ast.Attribute):
+            owner = _python_callable_name(target.value, self.aliases)
+            if owner.startswith("class:"):
+                key = f"{owner}.{target.attr}"
+                replacement = _python_callable_name(value, self.aliases) if value else ""
+                self.aliases[key] = replacement
+                self.module_aliases[key] = replacement
+                # Object writes inside functions need effect replay beyond return memoization.
+                if self.current_function is not None:
+                    self.flow_incomplete = True
+
+    def visit_Delete(self, node: ast.Delete) -> None:  # noqa: N802 - ast API
+        for target in node.targets:
+            self._bind_static_attribute(target, None)
+            for name in _assignment_names(target):
+                self.environment.pop(name, None)
+                self.aliases.pop(name, None)
+
+    def _register_function(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, *, static_key: str | None = None
+    ) -> None:
+        positional = [*node.args.posonlyargs, *node.args.args]
+        defaults = dict(
+            zip(
+                [item.arg for item in positional[len(positional) - len(node.args.defaults) :]],
+                node.args.defaults,
+            )
+        )
+        defaults.update(
+            {
+                item.arg: value
+                for item, value in zip(node.args.kwonlyargs, node.args.kw_defaults)
+                if value is not None
+            }
+        )
+        for value in defaults.values():
+            self.visit(value)
+        self.function_defaults[id(node)] = {
+            name: self._flow_value(
+                value, self.environment,
+                _python_expr_taints(value, self.environment, self.aliases, self.function_returns),
+            )
+            for name, value in defaults.items()
+        }
+        identity = self.function_identities.get(id(node), node.name.casefold())
+        if static_key is not None:
+            self.static_methods[static_key] = node
+            self.static_function_identities.add(identity)
+        elif self.current_function is None and identity == node.name.casefold():
+            self.module_functions[identity] = node
+        elif identity.rpartition(".")[0] == self.current_function:
+            self.nested_functions[identity] = node
+            self.scope_functions[identity] = node
+            self.aliases[node.name] = identity
+            if node.decorator_list:
+                self.flow_incomplete = True
+        else:
+            if self.current_function is not None and id(node) not in self.function_identities:
+                self.flow_incomplete = True
+            self._analyze_function(node)
+
+    def visit(self, node: ast.AST):
+        uncertain_bindings = (
+            _assignment_names(node.target)
+            if isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension, ast.NamedExpr))
+            else {node.name} if isinstance(node, ast.ExceptHandler) and node.name
+            else set()
+        )
+        for name in uncertain_bindings:
+            value = self.environment.get(name, set())
+            if getattr(value, "kind", ""):
+                # These bindings need element/control-flow modeling beyond this pass.
+                self.environment[name] = set(value)
+                self.flow_incomplete = True
+        if (
+            isinstance(node, ast.Nonlocal)
+            and self.current_function in self.nested_functions
+            or isinstance(node, ast.AsyncFunctionDef)
+            and self.function_identities.get(id(node), "").rpartition(".")[0]
+            == self.current_function
+        ):
+            self.flow_incomplete = True
+        if self.has_global_writes and (
+            isinstance(
+                node,
+                (
+                    ast.For,
+                    ast.AsyncFor,
+                    ast.While,
+                    ast.Try,
+                    ast.TryStar,
+                    ast.With,
+                    ast.AsyncWith,
+                    ast.Match,
+                    ast.AsyncFunctionDef,
+                    ast.Nonlocal,
+                    ast.Delete,
+                    ast.NamedExpr,
+                    ast.ClassDef,
+                ),
+            )
+            or isinstance(node, ast.If)
+            and any(isinstance(item, (ast.Return, ast.Raise)) for item in ast.walk(node))
+        ):
+            # These effect paths require control-flow modeling beyond this bounded pass.
+            self.flow_incomplete = True
+        result = super().visit(node)
+        if isinstance(node, ast.stmt):
+            for name in self.global_names:
+                self.module_environment[name] = set(self.environment.get(name, set()))
+                if name in self.aliases:
+                    self.module_aliases[name] = self.aliases[name]
+                else:
+                    self.module_aliases.pop(name, None)
+        return result
+
+    def _analyze_function(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, call: ast.Call | None = None
+    ) -> None:
+        if id(node) in self.active_functions:
+            arguments = python_call_argument_nodes(node, call)
+            recursive_values = [self._flow_value(value, self.environment, set())
+                                for value in arguments.values()]
+            recursive_values.extend(value for name, value in self.function_defaults.get(id(node), {}).items()
+                                    if name not in arguments)
+            locals_ = python_local_bindings(node)
+            recursive_values.extend(self.environment.get(name, set())
+                                    for name in python_mutated_names(node) - locals_)
+            if self.has_global_writes or any(
+                python_mutable_flow_value(value) for value in recursive_values
+            ):
+                self.flow_incomplete = True
+            return
+        if len(self.active_functions) >= 32 or self.function_visits >= 512:
+            self.flow_incomplete = True
+            return
         previous_environment = self.environment
         previous_function = self.current_function
         previous_returns = self.current_return_taints
+        previous_return_values = self.current_return_values
         previous_network_parameters = self.current_network_parameters
-        self.environment = {name: set(value) for name, value in previous_environment.items()}
+        previous_aliases = self.aliases
+        previous_globals = self.global_names
+        previous_locals = self.local_names
+        identity = self.function_identities.get(id(node), node.name.casefold())
+        module_function = (
+            self.module_functions.get(identity) is node
+            or identity in self.static_function_identities
+        )
+        nested_function = self.nested_functions.get(identity) is node
+        lexical_frame = self.lexical_frames.get(identity.rpartition(".")[0])
+        if nested_function and lexical_frame is None:
+            self.flow_incomplete = True
+            return
+        previous_scope_functions = self.scope_functions
+        previous_call_proven = self.current_call_proven
+        call_proven = call is not None and (previous_function is None or previous_call_proven)
+        if module_function and previous_function is None and self.class_depth == 0:
+            self.module_environment = previous_environment
+            self.module_aliases = previous_aliases
+        saved_module = self.module_environment
+        saved_module_aliases = self.module_aliases
+        if self.has_global_writes and call is None:
+            # Speculative bodies contribute evidence, never real call-order effects.
+            self.module_environment = python_copy_flow_environment(saved_module)
+            self.module_aliases = dict(saved_module_aliases)
+        outer = self.module_environment if module_function else previous_environment
+        defaults = self.function_defaults.get(id(node), {})
+        argument_values = {
+            name: self._flow_value(
+                value, previous_environment,
+                _python_expr_taints(
+                    value, previous_environment, previous_aliases, self.function_returns
+                ),
+            )
+            for name, value in python_call_argument_nodes(node, call).items()
+        }
+        shared_mutable = call_proven and any(
+            python_mutable_flow_value(value)
+            for values in (outer, defaults, argument_values)
+            for value in values.values()
+        )
+        graph_return = any(isinstance(item, ast.Return) and item.value is not None
+                           for item in ast.walk(node))
+        value_arguments = call_proven and any(
+            getattr(value, "http_url_taints", None) is not None
+            or getattr(value, "literal_string", None) is not None
+            for value in argument_values.values()
+        )
+        bind_actual_arguments = (
+            self.bind_actual_arguments or shared_mutable or value_arguments
+            or (call_proven and graph_return)
+        )
+        argument_taints = (
+            _python_call_argument_taints(
+                call, previous_environment, previous_aliases, self.function_returns
+            )
+            if call and bind_actual_arguments else []
+        )
+        self.environment = python_copy_flow_environment(outer, share_mutable=call_proven)
+        self.aliases = dict(self.module_aliases if module_function else previous_aliases)
+        if nested_function:
+            self.environment = python_copy_flow_environment(
+                lexical_frame[0], share_mutable=call_proven
+            )
+            self.aliases = dict(lexical_frame[1])
+            for name in python_global_bindings(node):
+                self.environment[name] = set(self.module_environment.get(name, set()))
+                if name in self.module_aliases:
+                    self.aliases[name] = self.module_aliases[name]
+                else:
+                    self.aliases.pop(name, None)
+        for name in python_local_bindings(node):
+            self.environment.pop(name, None)
+            self.aliases.pop(name, None)
         arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+        kinds = (
+            ["posonly"] * len(node.args.posonlyargs)
+            + ["positional"] * len(node.args.args)
+            + ["keyword"] * len(node.args.kwonlyargs)
+        )
+        bindings = {
+            f"binding:{index}:{kind}:{argument.arg}"
+            for index, (kind, argument) in enumerate(zip(kinds, arguments))
+        }
+        keyword_names = {item.arg for item in [*node.args.args, *node.args.kwonlyargs]}
+        supplied = (
+            {item.arg for item in call.keywords if item.arg in keyword_names} if call else set()
+        )
+        if call:
+            positional = [*node.args.posonlyargs, *node.args.args]
+            supplied.update(item.arg for item in positional[: len(call.args)])
         for index, argument in enumerate(arguments):
-            self.environment[argument.arg] = {f"parameter:{index}"}
+            self.aliases.pop(argument.arg, None)
+            self.environment[argument.arg] = (
+                defaults[argument.arg]
+                if call_proven and argument.arg in defaults
+                and argument.arg not in supplied and python_mutable_flow_value(defaults[argument.arg])
+                else python_copy_flow_value(defaults[argument.arg])
+                if argument.arg in defaults and argument.arg not in supplied
+                else argument_values[argument.arg]
+                if call_proven and python_mutable_flow_value(argument_values.get(argument.arg, set()))
+                else python_copy_flow_value(argument_values[argument.arg])
+                if call_proven and (
+                    getattr(argument_values.get(argument.arg), "http_url_taints", None) is not None
+                    or getattr(argument_values.get(argument.arg), "literal_string", None) is not None
+                )
+                else _python_bound_taints(call, argument_taints, bindings | {f"parameter:{index}"})
+                if call and bind_actual_arguments
+                else {f"parameter:{index}"}
+            )
+        cache_key = (
+            id(node),
+            call_proven,
+            python_flow_environment_key(self.environment),
+            tuple(sorted(self.aliases.items())),
+            tuple((key, id(value)) for key, value in self.module_functions.items()),
+            tuple((key, id(value)) for key, value in self.static_methods.items()),
+        )
+        # Return-only memoization cannot replay module or shared-container effects.
+        cached = (
+            self.function_cache.get(cache_key)
+            if not (self.has_global_writes or shared_mutable or graph_return) else None
+        )
+        if cached is not None:
+            self.function_returns[identity], self.function_network_parameters[identity] = cached
+            self.environment = previous_environment
+            self.aliases = previous_aliases
+            return
+        self.function_visits += 1
+        self.active_functions.add(id(node))
+        self.called_functions.add(id(node))
+        self.scope_functions = {}
+        self.current_call_proven = call_proven
+        self.global_names = python_global_bindings(node)
+        self.local_names = python_local_bindings(node) | {item.arg for item in arguments}
+        self.local_names.update(
+            item.arg for item in (node.args.vararg, node.args.kwarg) if item is not None
+        )
         self.current_function = self.function_identities.get(
             id(node),
             node.name.casefold(),
         )
         self.current_return_taints = set()
+        self.current_return_values = []
         self.current_network_parameters = set()
         for statement in node.body:
             self.visit(statement)
-        bindings = {f"binding:{index}:{argument.arg}" for index, argument in enumerate(arguments)}
+            if bind_actual_arguments and isinstance(statement, (ast.Return, ast.Raise)):
+                break
+        self.lexical_frames[identity] = (self.environment, self.aliases)
+        for function in list(self.scope_functions.values()):
+            if id(function) not in self.called_functions:
+                self._analyze_function(function)
+        if call_proven and self.current_return_values:
+            returned = [value for _, value in self.current_return_values]
+            if (all(value is returned[0] for value in returned)
+                    and (len(returned) > 1 or self.current_return_values[0][0] in node.body)
+                    and python_mutable_flow_value(returned[0])):
+                call._qindun_flow_value = returned[0]
+            elif (
+                isinstance(node, ast.FunctionDef)
+                and any(isinstance(statement, ast.Return) for statement in node.body)
+                and not any(
+                    isinstance(item, (ast.Yield, ast.YieldFrom))
+                    or isinstance(item, ast.Return) and item.value is None
+                    for item in ast.walk(node)
+                )
+                and (
+                    all(getattr(value, "http_url_taints", None) is not None for value in returned)
+                    or all(getattr(value, "literal_string", None) is not None for value in returned)
+                )
+            ):
+                # A direct return covers fallthrough; every observed return retains proof.
+                call._qindun_flow_value = python_merge_fresh_flow_values(
+                    returned, _python_mapping_item_taints
+                )
+            elif all(
+                isinstance(statement.value, (ast.Dict, ast.List, ast.Tuple, ast.Set))
+                or isinstance(statement.value, ast.Call)
+                and isinstance(statement.value.func, ast.Name)
+                and statement.value.func.id == "dict" and "dict" not in self.environment
+                for statement, _ in self.current_return_values
+            ):
+                call._qindun_flow_value = python_merge_fresh_flow_values(
+                    returned, _python_mapping_item_taints
+                )
+                self.flow_incomplete |= "flow_graph_incomplete" in call._qindun_flow_value
+            elif any(python_mutable_flow_value(value) for value in returned):
+                self.flow_incomplete = True
         self.function_returns[self.current_function] = set(self.current_return_taints) | bindings
         self.function_network_parameters[self.current_function] = set(
             self.current_network_parameters
         ) | (bindings if self.current_network_parameters else set())
         self.environment = previous_environment
+        self.aliases = previous_aliases
+        self.global_names = previous_globals
+        self.local_names = previous_locals
+        if self.has_global_writes:
+            if call is None:
+                self.module_environment = saved_module
+                self.module_aliases = saved_module_aliases
+            else:
+                for name, flags in self.module_environment.items():
+                    if name not in previous_locals:
+                        self.environment[name] = python_copy_flow_value(flags)
+                        if name in self.module_aliases:
+                            self.aliases[name] = self.module_aliases[name]
+                        else:
+                            self.aliases.pop(name, None)
+        self.function_cache[cache_key] = (
+            set(self.function_returns[identity]),
+            set(self.function_network_parameters[identity]),
+        )
+        self.active_functions.remove(id(node))
         self.current_function = previous_function
         self.current_return_taints = previous_returns
+        self.current_return_values = previous_return_values
         self.current_network_parameters = previous_network_parameters
+        self.current_call_proven = previous_call_proven
+        self.scope_functions = previous_scope_functions
+        self.lexical_frames.pop(identity, None)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802 - ast API
+        self._register_function(node)
+        self.environment[node.name] = set()
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_Return(self, node: ast.Return) -> None:  # noqa: N802 - ast API
+        if (
+            node.value is not None
+            and _python_callable_name(node.value, self.aliases).casefold() in self.nested_functions
+        ):
+            # Escaping closures need persistent cells, outside the active-frame model.
+            self.flow_incomplete = True
         if node.value is not None:
             self.visit(node.value)
+            self.current_return_values.append((node, self._flow_value(
+                node.value, self.environment,
+                _python_expr_taints(node.value, self.environment, self.aliases, self.function_returns),
+            )))
         self.current_return_taints.update(
             _python_expr_taints(
                 node.value,
@@ -2475,6 +3433,7 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
 
     def visit_Import(self, node: ast.Import) -> None:  # noqa: N802 - ast API
         for item in node.names:
+            self.environment[item.asname or item.name.split(".", 1)[0]] = set()
             if item.asname:
                 self.aliases[item.asname] = item.name
             else:
@@ -2484,28 +3443,70 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802 - ast API
         module = node.module or ""
         for item in node.names:
+            self.environment[item.asname or item.name] = set()
             self.aliases[item.asname or item.name] = f"{module}.{item.name}".strip(".")
 
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:  # noqa: N802 - ast API
+        for value in node.values:
+            self.visit(value)
+            truth = _static_truth_value(value)
+            if (isinstance(node.op, ast.And) and truth is False
+                    or isinstance(node.op, ast.Or) and truth is True):
+                break
+
+    def visit_IfExp(self, node: ast.IfExp) -> None:  # noqa: N802 - ast API
+        self.visit_If(ast.If(test=node.test, body=[ast.Expr(value=node.body)],
+                             orelse=[ast.Expr(value=node.orelse)]))
+
+
     def visit_If(self, node: ast.If) -> None:  # noqa: N802 - ast API
+        self.visit(node.test)
         truth = _static_truth_value(node.test)
         if truth is not None:
             branch = node.body if truth else node.orelse
             for statement in branch:
                 self.visit(statement)
             return
-        before = {name: set(value) for name, value in self.environment.items()}
-        self.environment = {name: set(value) for name, value in before.items()}
+        before, before_module = dict(self.environment), dict(self.module_environment)
+        before_aliases, before_module_aliases = dict(self.aliases), dict(self.module_aliases)
+        external = list(self.function_defaults.values())
+        external.extend(frame[0] for frame in self.lexical_frames.values()
+                        if frame[0] is not self.environment)
+        if self.current_function is not None:
+            external.append(self.module_environment)
+        referenced = {id(value) for frame in external for value in frame.values()}
+        # Save object state independently of bindings: a branch may rebind its last alias.
+        roots = [before, before_module, *self.function_defaults.values()]
+        roots.extend(frame[0] for frame in self.lexical_frames.values())
+        objects = python_flow_snapshot(roots)
+        if len(objects) >= 1024:
+            self.flow_incomplete = True
+        self.environment = dict(before)
+        self.module_environment = dict(before_module)
         for statement in node.body:
             self.visit(statement)
-        body_environment = self.environment
-        self.environment = {name: set(value) for name, value in before.items()}
+        body_environment, body_module = dict(self.environment), dict(self.module_environment)
+        body_aliases, body_module_aliases = dict(self.aliases), dict(self.module_aliases)
+        body_objects = python_flow_snapshot([{"root:" + str(identity): entry[0]
+                                              for identity, entry in objects.items()}])
+        python_restore_flow_snapshot(objects)
+        self.environment, self.module_environment = dict(before), dict(before_module)
+        self.aliases, self.module_aliases = before_aliases, before_module_aliases
         for statement in node.orelse:
             self.visit(statement)
-        else_environment = self.environment
-        self.environment = {
-            name: set(body_environment.get(name, set())) | set(else_environment.get(name, set()))
-            for name in set(before) | set(body_environment) | set(else_environment)
-        }
+        # Join possible effects only after visiting both mutually exclusive branches.
+        self.flow_incomplete |= python_join_flow_snapshot(body_objects, _python_mapping_item_taints)
+        self.environment, incomplete = python_merge_flow_bindings(
+            body_environment, self.environment, referenced, _python_mapping_item_taints
+        )
+        self.module_environment, module_incomplete = python_merge_flow_bindings(
+            body_module, self.module_environment, referenced, _python_mapping_item_taints
+        )
+        self.flow_incomplete |= incomplete or module_incomplete
+        self.aliases = {name: value for name, value in self.aliases.items()
+                        if body_aliases.get(name) == value}
+        self.module_aliases = {name: value for name, value in self.module_aliases.items()
+                               if body_module_aliases.get(name) == value}
 
     def visit_While(self, node: ast.While) -> None:  # noqa: N802 - ast API
         truth = _static_truth_value(node.test)
@@ -2523,6 +3524,7 @@ def _python_flow_findings(path: str, text: str) -> tuple[list[Finding], str | No
         return [], f"Python 结构分析失败：{path}"
     if sum(1 for _node in ast.walk(tree)) > MAX_STRUCTURED_AST_NODES:
         return [], f"Python 结构节点超过上限：{path}"
+    python_expand_literal_arguments(tree)
     reachable_functions, function_identities = _python_reachable_functions(tree)
     analyzer = _PythonFlowAnalyzer(
         path,
@@ -2531,7 +3533,10 @@ def _python_flow_findings(path: str, text: str) -> tuple[list[Finding], str | No
         function_identities=function_identities,
     )
     analyzer.visit(tree)
-    return analyzer.findings, None
+    return (
+        analyzer.findings,
+        f"Python 调用分析超过范围：{path}" if analyzer.flow_incomplete else None,
+    )
 
 
 def _shell_flow_findings(path: str, text: str, *, powershell: bool = False) -> list[Finding]:
@@ -2539,20 +3544,26 @@ def _shell_flow_findings(path: str, text: str, *, powershell: bool = False) -> l
     downloaded_files: set[str] = set()
     findings: list[Finding] = []
     seen: set[tuple[str, int]] = set()
-    normalized_text = text.replace("\\\n", " ")
+    logical_lines = shell_logical_lines(text)
+    normalized_text = "\n".join(line for _, line in logical_lines)
     function_ranges, reachable_functions = _function_reachability(
         normalized_text,
         language="shell",
     )
+    function_names = {name for name, _start, _end in function_ranges}
+    safe_interpolations: set[str] = set()
 
-    def add(rule_id: str, line: int, source: str) -> None:
+    def add(rule_id: str, line: int, source: str, *, candidate_only: bool = False) -> None:
         key = (rule_id, line)
         if key not in seen:
             seen.add(key)
-            finding = _confirmed_structural_finding(rule_id, path, line, source)
+            finding = _confirmed_structural_finding(
+                rule_id, path, logical_lines[line - 1][0], source
+            )
             findings.append(
                 replace(finding, disposition="candidate")
-                if _structured_disposition(
+                if candidate_only
+                or _structured_disposition(
                     line,
                     function_ranges,
                     reachable_functions,
@@ -2576,7 +3587,15 @@ def _shell_flow_findings(path: str, text: str, *, powershell: bool = False) -> l
         if start in {"curl", "wget"} and RULES_BY_ID["QINDUN.D3.REMOTE_PIPE_SHELL"].pattern.search(
             command_line
         ):
-            add("QINDUN.D3.REMOTE_PIPE_SHELL", line_number, original)
+            add(
+                "QINDUN.D3.REMOTE_PIPE_SHELL",
+                line_number,
+                original,
+                candidate_only=not powershell
+                and shell_fixed_json_pipeline(
+                    command_line, lines[line_number:], safe_interpolations
+                ),
+            )
         if start in {"bash", "nc", "ncat"} and RULES_BY_ID[
             "QINDUN.D3.REVERSE_SHELL"
         ].pattern.search(command_line):
@@ -2584,24 +3603,102 @@ def _shell_flow_findings(path: str, text: str, *, powershell: bool = False) -> l
         if (
             powershell
             and start
-            in {"iex", "invoke-expression", "invoke-webrequest", "iwr", "powershell", "pwsh"}
+            in {
+                "iex",
+                "invoke-expression",
+                "invoke-webrequest",
+                "iwr",
+                "irm",
+                "invoke-restmethod",
+                "powershell",
+                "pwsh",
+            }
             and RULES_BY_ID["QINDUN.D3.POWERSHELL_DOWNLOAD_EXECUTION"].pattern.search(command_line)
         ):
-            add("QINDUN.D3.POWERSHELL_DOWNLOAD_EXECUTION", line_number, original)
+            add(
+                "QINDUN.D3.POWERSHELL_DOWNLOAD_EXECUTION",
+                line_number,
+                original,
+                candidate_only=start in {"iwr", "invoke-webrequest", "irm", "invoke-restmethod"}
+                and not powershell_direct_execution_pipeline(command_line),
+            )
 
-        assignment = re.match(r"^\s*(?:export\s+)?([A-Za-z_]\w*)\s*=\s*(.*)$", original)
+        assignment = re.match(
+            r"^\s*(?:export\s+)?([A-Za-z_]\w*)\s*=\s*(.*)$" if powershell else
+            r"^\s*(?:export\s+)?([A-Za-z_]\w*)=(.*)$",
+            original,
+        )
+        request_source = command_line
+        if assignment and not powershell:
+            substitution = shell_substitution_command(shell_assignment_value(assignment[2]))
+            if substitution is not None:
+                request_source = substitution
+        request_command = (
+            request_source if powershell else
+            shell_request_command(
+                request_source, lines[line_number:], safe_interpolations
+            )
+        )
+        request_variables = None if powershell else shell_request_variables(request_command)
+        compound_auth: list[bool] = []
+        compound_requests = None
+        if not powershell and request_variables is None:
+            compound_requests = shell_compound_requests(request_source)
+            for request in compound_requests[0] if compound_requests is not None else []:
+                frame, variables = request.command, request.variables
+                credentials = {
+                    name for name in variables
+                    if "credential" in environment.get(name, set())
+                    or name not in environment and _sensitive_env_name(name)
+                }
+                paths = {
+                    name for name in variables
+                    if "credential_path" in environment.get(name, set())
+                }
+                stdin_credentials = request.stdin_credential_path or any(
+                    "credential" in environment.get(name, set())
+                    or name not in environment and _sensitive_env_name(name)
+                    for name in request.stdin_variables
+                )
+                if stdin_credentials:
+                    compound_auth.append(False)
+                elif credentials or re.search(
+                    r"(?:\.ssh/|\.aws/credentials|\.config/gcloud|login\.keychain)", frame, re.I
+                ):
+                    compound_auth.append(shell_header_auth_only(frame, credentials, paths))
+        request_credentials = {
+            name for name in (request_variables or set())
+            if "credential" in environment.get(name, set())
+            or name not in environment and _sensitive_env_name(name)
+        }
+        request_paths = {
+            name for name in (request_variables or set())
+            if "credential_path" in environment.get(name, set())
+        }
+        literal_assignment = False
         if assignment:
             name, expression = assignment.groups()
+            if not powershell:
+                expression = shell_assignment_value(expression)
             taints: set[str] = set()
             referenced_variables = re.findall(
                 r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))", expression
+            )
+            assignment_variables = None if powershell else shell_assignment_variables(expression)
+            variable_names = (
+                {first or second for first, second in referenced_variables}
+                if assignment_variables is None else assignment_variables
             )
             if re.search(
                 r"(?:\.ssh/|\.aws/credentials|\.config/gcloud|login\.keychain)",
                 expression,
                 re.I,
-            ) or any(
-                _sensitive_env_name(first or second) for first, second in referenced_variables
+            ):
+                taints.update({"credential", "credential_path"})
+            if any(
+                _sensitive_env_name(variable)
+                and (assignment_variables is None or variable not in environment)
+                for variable in variable_names
             ):
                 taints.add("credential")
             if re.search(r"\b(?:curl|wget|Invoke-WebRequest|iwr)\b", expression, re.I):
@@ -2610,11 +3707,20 @@ def _shell_flow_findings(path: str, text: str, *, powershell: bool = False) -> l
                 r"\b(?:base64\s+(?:-[A-Za-z]*d|--decode)|FromBase64String)\b", expression, re.I
             ):
                 taints.add("decoded")
-            for variable, variable_taints in environment.items():
-                if re.search(
-                    rf"\$(?:\{{{re.escape(variable)}\}}|{re.escape(variable)}\b)", expression
-                ):
-                    taints.update(variable_taints)
+            for variable in variable_names:
+                taints.update(environment.get(variable, set()))
+            literal_assignment = not powershell and shell_literal_assignment(expression)
+            if literal_assignment:
+                taints.difference_update({"download", "decoded"})
+            if not powershell and shell_curl_response_only(expression):
+                # Captured HTTP response bytes are remote data, not request input.
+                taints = {"download"}
+            if not powershell and shell_curl_status_only(expression):
+                # Fixed numeric metadata carries none of the request's input provenance.
+                taints.clear()
+            read_file = re.match(r"^\$\(\s*cat\s+([^\s)]+)", expression)
+            if not powershell and read_file and read_file[1].strip("\"'") in downloaded_files:
+                taints.add("download")
             environment[name] = taints
 
         download_target = re.search(
@@ -2650,15 +3756,56 @@ def _shell_flow_findings(path: str, text: str, *, powershell: bool = False) -> l
         )
         if executed_path in downloaded_files:
             add("QINDUN.LOCAL.D3.DOWNLOAD_EXECUTION_FLOW", line_number, original)
-        if network_sink and "credential" in line_taints:
-            add("QINDUN.D3.CREDENTIAL_EXFILTRATION", line_number, original)
+        network_credentials = (
+            bool(request_credentials)
+            or bool(re.search(r"(?:\.ssh/|\.aws/credentials|\.config/gcloud|login\.keychain)", original, re.I))
+            if request_variables is not None else "credential" in line_taints
+        )
+        if network_sink and network_credentials and not literal_assignment and (
+            compound_requests is None or not compound_requests[1]
+        ):
+            credential_variables = {
+                name for name, flags in environment.items() if "credential" in flags
+            }
+            credential_variables.update(
+                first or second
+                for first, second in re.findall(
+                    r"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))", original
+                )
+                if _sensitive_env_name(first or second)
+            )
+            auth_only = not powershell and shell_header_auth_only(
+                request_command,
+                request_credentials if request_variables is not None else credential_variables,
+                request_paths if request_variables is not None else
+                {name for name, flags in environment.items() if "credential_path" in flags},
+            )
+            add(
+                "QINDUN.D3.CREDENTIAL_EXFILTRATION", line_number, original, candidate_only=auth_only
+            )
+        if compound_auth:
+            add(
+                "QINDUN.D3.CREDENTIAL_EXFILTRATION", line_number, original,
+                candidate_only=all(compound_auth),
+            )
         if execution_sink and (
             "download" in line_taints
             or re.search(r"\$\([^)]*\b(?:curl|wget|iwr|Invoke-WebRequest)\b", original, re.I)
         ):
             add("QINDUN.LOCAL.D3.DOWNLOAD_EXECUTION_FLOW", line_number, original)
+        if not powershell:
+            program_variables = shell_python_program_variables(command_line, lines[line_number:])
+            program_taints = set().union(*(environment.get(name, set()) for name in program_variables))
+            if "download" in program_taints:
+                add("QINDUN.LOCAL.D3.DOWNLOAD_EXECUTION_FLOW", line_number, original)
+            if "decoded" in program_taints:
+                add("QINDUN.LOCAL.D3.DECODE_EXECUTION_FLOW", line_number, original)
         if execution_sink and "decoded" in line_taints:
             add("QINDUN.LOCAL.D3.DECODE_EXECUTION_FLOW", line_number, original)
+        if not powershell:
+            shell_update_safe_date_interpolations(
+                original, safe_interpolations, function_names
+            )
     return findings
 
 
@@ -2829,13 +3976,15 @@ def _javascript_request_taints(
             value_taints = taints(pair.group("value"))
             if "credential" in value_taints and "credential_path" not in value_taints:
                 auth_taints.add("auth_credential")
-                return pair.group("prefix") + "'<authentication>'"
+                # Mask the whole recognized field: a variable named `key`
+                # must not match the literal header name's final component.
+                return " " * len(pair.group(0))
             return pair.group(0)
 
         # Only simple literal header values qualify. Computed keys, spreads and
         # calls remain ordinary data flow; no URL or publisher is exempted.
         fields = re.sub(
-            r"""(?P<prefix>(?:^|,)\s*['"]?(?:Authorization|X-API-Key|API-Key)['"]?\s*:\s*)"""
+            r"""(?P<prefix>(?:^|,)\s*['"]?(?:Authorization|X-API-Key|API-Key|X-Goog-API-Key)['"]?\s*:\s*)"""
             r"""(?P<value>process\.env(?:\.[A-Za-z_$][\w$]*|\[['"][A-Za-z_$][\w$]*['"]\])"""
             r"""|[A-Za-z_$][\w$]*|'[^'\\]*'|"[^"\\]*"|\x60[^\x60\\]*\x60)"""
             r"(?=\s*(?:,|$))",
@@ -3005,7 +4154,39 @@ def _structured_code_findings(
         executable_role in {"python", "shell", "powershell", "javascript"}
         and len(text.encode("utf-8", errors="replace")) > MAX_STRUCTURED_CODE_BYTES
     ):
-        return role, findings, f"代码结构分析超过大小上限：{path}"
+        if executable_role == "python":
+            encoded = text.encode("utf-8", errors="replace")
+            prefix = encoded[:MAX_STRUCTURED_CODE_BYTES]
+            head_end = prefix.rfind(b"\n")
+            head = prefix[: head_end + 1] if head_end >= 0 else b""
+            tail_start = max(0, len(encoded) - MAX_STRUCTURED_CODE_BYTES)
+            tail = encoded[tail_start:]
+            if tail_start:
+                first_newline = tail.find(b"\n")
+                if first_newline < 0:
+                    tail = b""
+                else:
+                    tail_start += first_newline + 1
+                    tail = tail[first_newline + 1 :]
+            windows = []
+            for index, raw in enumerate((head, tail)):
+                if raw:
+                    try:
+                        window = raw.decode("utf-8", errors="strict")
+                    except UnicodeDecodeError:
+                        continue
+                    if window not in [item[0] for item in windows]:
+                        line_offset = 0 if index == 0 else encoded[:tail_start].count(b"\n")
+                        windows.append((window, line_offset))
+            for window, line_offset in windows:
+                window_findings, _window_error = _python_flow_findings(path, window)
+                findings.extend(
+                    replace(item, line=item.line + line_offset if item.line else None)
+                    for item in window_findings
+                )
+        if safety_code:
+            findings = [replace(item, disposition="candidate") for item in findings]
+        return role, list(dict.fromkeys(findings)), f"代码结构分析超过大小上限：{path}"
     if executable_role == "python":
         python_findings, error = _python_flow_findings(path, text)
         findings.extend(python_findings)
@@ -3078,9 +4259,12 @@ def _structure_findings(
         path for path in paths if PurePosixPath(path).name in {"chinmarket.yaml", "chinmarket.yml"}
     )
     workflow_paths = sorted(path for path in paths if PurePosixPath(path).name == "langgraph.json")
+    valid_skill_roots: set[str] = set()
     for path in skill_paths:
         detected.add("skill")
-        if not _frontmatter_valid(marker_texts.get(path, "")):
+        if _frontmatter_valid(marker_texts.get(path, "")):
+            valid_skill_roots.add(_relative_root(path))
+        else:
             findings.append(
                 _finding(
                     "QINDUN.LOCAL.D2.SKILL_METADATA",
@@ -3094,7 +4278,14 @@ def _structure_findings(
                 )
             )
     for path in agent_paths:
-        detected.add("agent")
+        # Match platform profile selection: same-root AGENTS.md augments a valid
+        # Skill; its metadata and content checks still run normally.
+        companion = (
+            PurePosixPath(path).name == "AGENTS.md"
+            and _relative_root(path) in valid_skill_roots
+        )
+        if not companion:
+            detected.add("agent")
         if not marker_texts.get(path, "").strip():
             findings.append(
                 _finding(
@@ -3232,6 +4423,8 @@ def _network_profile(domain: str) -> dict[str, object]:
         address = ipaddress.ip_address(domain)
     except ValueError:
         address = None
+    if address is not None and address.is_loopback:
+        return {"domain": domain, "category": "本机回环地址", "risk": "low", "flags": []}
     if address is not None and any(
         address in ipaddress.ip_network(network)
         for network in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
